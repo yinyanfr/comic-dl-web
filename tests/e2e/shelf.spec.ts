@@ -1,5 +1,3 @@
-import { spawn } from "node:child_process";
-import { once } from "node:events";
 import {
   cp,
   mkdir,
@@ -11,9 +9,8 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { join } from "node:path";
-import process from "node:process";
-import { createInterface } from "node:readline";
 import { expect, test as base } from "@playwright/test";
+import { testServices } from "./service";
 
 const demo = "tests/fixtures/comics";
 
@@ -46,60 +43,17 @@ async function prepareShelf(directory: string) {
     await writeFile(temporary, JSON.stringify(manifest));
     await rename(temporary, manifestFile);
   };
-  const servers = new Set<() => Promise<void>>();
+  const services = testServices(directory);
 
   async function start(options: { fixture?: boolean; marker?: boolean } = {}) {
-    const child = spawn(process.execPath, ["server.ts"], {
-      env: {
-        ...process.env,
-        HOST: "127.0.0.1",
-        PORT: "0",
-        NODE_ENV: "test",
-        COMIC_DL_WEB_FIXTURE: options.fixture === false ? "0" : "1",
-        COMIC_DL_WEB_FIXTURE_DIR: fixture,
-        COMIC_DL_WEB_OUTPUT: output,
-        COMIC_DL_WEB_SHELF: join(directory, "shelf.sqlite"),
-        COMIC_DL_WEB_WATCH_INTERVAL: "1",
-        // A second process can open the shelf even when its configured extension fails to load.
-        COMIC_DL_WEB_EXTENSIONS:
-          options.fixture === false ? "@fixture/missing-source" : "",
-        ...(options.marker ? { COMIC_DL_WEB_OUTPUT_MARKER: ".nas-ready" } : {}),
-      },
-      stdio: ["ignore", "pipe", "pipe"],
+    return services.start({
+      COMIC_DL_WEB_FIXTURE: options.fixture === false ? "0" : "1",
+      COMIC_DL_WEB_FIXTURE_DIR: fixture,
+      // A second process can open the shelf even when its configured extension fails to load.
+      COMIC_DL_WEB_EXTENSIONS:
+        options.fixture === false ? "@fixture/missing-source" : "",
+      COMIC_DL_WEB_OUTPUT_MARKER: options.marker ? ".nas-ready" : undefined,
     });
-    let stderr = "";
-    child.stderr.setEncoding("utf8").on("data", (chunk: string) => {
-      stderr += chunk;
-    });
-    const exited = once(child, "exit");
-    const stop = async () => {
-      servers.delete(stop);
-      child.kill("SIGTERM");
-      try {
-        const [code, signal] = await Promise.race([
-          exited,
-          once(child, "exit", { signal: AbortSignal.timeout(10_000) }),
-        ]);
-        expect([code, signal], stderr).toEqual([0, null]);
-      } finally {
-        child.kill("SIGKILL");
-      }
-    };
-    servers.add(stop);
-    const lines = createInterface({ input: child.stdout });
-    const url = await Promise.race([
-      once(lines, "line").then(([line]) => {
-        const match = /^comic-dl-web: (http:\/\/127\.0\.0\.1:\d+)$/.exec(
-          String(line),
-        );
-        if (!match) throw new Error(`Unexpected service output: ${line}`);
-        return match[1];
-      }),
-      exited.then(() => {
-        throw new Error(`Service stopped before listening: ${stderr}`);
-      }),
-    ]);
-    return { url, stop };
   }
 
   return {
@@ -109,9 +63,7 @@ async function prepareShelf(directory: string) {
     manifest,
     saveManifest,
     start,
-    async stopServers() {
-      await Promise.all([...servers].map((stop) => stop()));
-    },
+    stopServers: services.stopServers,
     async archives() {
       return (await readdir(output)).filter((filename) =>
         filename.endsWith(".cbz"),

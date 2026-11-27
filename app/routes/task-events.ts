@@ -25,7 +25,7 @@ export function loader({ request, context }: Route.LoaderArgs) {
         flush(controller);
       };
       const unsubscribe = forShelf
-        ? context.shelfWatcher.subscribe(publish)
+        ? context.comics.shelfWatcher.subscribe(publish)
         : downloadQueue.subscribe(publish);
       const interval = setInterval(() => {
         if ((controller.desiredSize ?? 0) > 0) controller.enqueue(heartbeat);

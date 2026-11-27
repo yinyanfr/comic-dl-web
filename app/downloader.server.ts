@@ -5,13 +5,15 @@ import {
   fixtureExtension,
   withManagedDownloader,
   type Downloader,
+  type SettingsBySource,
 } from "comic-dl";
 import { z } from "zod";
 
 const fixtureFlag = z.enum(["0", "1"]).default("0");
 const path = z.string().trim().min(1);
-const packageName = z
+export const packageName = z
   .string()
+  .max(214)
   .regex(/^(?:@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]*$/);
 const environmentSchema = z.object({
   COMIC_DL_WEB_OUTPUT: path.default("./downloads"),
@@ -26,6 +28,19 @@ const environmentSchema = z.object({
     .refine((name) => !/[/\\\0]/.test(name) && name !== "." && name !== "..")
     .optional(),
   COMIC_DL_WEB_EXTENSION_DIR: path.optional(),
+  COMIC_DL_WEB_SOURCE_STATE: path.default("./data/sources.json"),
+  COMIC_DL_WEB_ENABLE_EXTENSION_MANAGEMENT: z.enum(["0", "1"]).default("0"),
+  COMIC_DL_WEB_ADMIN_ORIGIN: z
+    .url()
+    .refine((value) => {
+      const url = new URL(value);
+      return (
+        /^https?:$/.test(url.protocol) &&
+        url.origin === value &&
+        !url.hostname.includes("*")
+      );
+    })
+    .optional(),
   COMIC_DL_WEB_EXTENSIONS: z
     .string()
     .optional()
@@ -62,6 +77,14 @@ export function createAppDownloader(
 }
 
 const config = environmentSchema.parse(process.env);
+export const extensionDirectory = resolve(
+  config.COMIC_DL_WEB_EXTENSION_DIR ?? "./data/extensions",
+);
+export const sourceStateFile = resolve(config.COMIC_DL_WEB_SOURCE_STATE);
+export const extensionManagementEnabled =
+  config.COMIC_DL_WEB_ENABLE_EXTENSION_MANAGEMENT === "1";
+export const adminOrigin = config.COMIC_DL_WEB_ADMIN_ORIGIN;
+export const deploymentPackages = config.COMIC_DL_WEB_EXTENSIONS;
 export const shelfFile = resolve(config.COMIC_DL_WEB_SHELF);
 export const watchOptions = {
   directory: resolve(config.COMIC_DL_WEB_OUTPUT),
@@ -75,25 +98,25 @@ export const fixtureDirectory = fixtureEnabled(process.env)
       ),
     )
   : undefined;
-const localDownloader = createAppDownloader();
+export type ReportLoadError = (cause: unknown) => void;
 
-export async function withAppDownloader<T>(
+export type WithDownloader = <T>(
   run: (downloader: Downloader) => Promise<T>,
   signal?: AbortSignal,
-  onLoadError?: (cause: unknown) => void,
+  onLoadError?: ReportLoadError,
+) => Promise<T>;
+
+export function withConfiguredDownloader<T>(
+  sourceSettings: SettingsBySource,
+  run: (downloader: Downloader) => Promise<T>,
+  signal?: AbortSignal,
+  onLoadError: ReportLoadError = () => {},
 ) {
-  if (
-    !config.COMIC_DL_WEB_EXTENSION_DIR &&
-    config.COMIC_DL_WEB_EXTENSIONS.length === 0
-  ) {
-    return run(localDownloader);
-  }
   return withManagedDownloader(
     {
-      extensions: config.COMIC_DL_WEB_EXTENSIONS,
-      extensionDirectory: resolve(
-        config.COMIC_DL_WEB_EXTENSION_DIR ?? "./data/extensions",
-      ),
+      extensions: deploymentPackages,
+      extensionDirectory,
+      sourceSettings,
       source: config.COMIC_DL_WEB_DEFAULT_SOURCE,
       output: resolve(config.COMIC_DL_WEB_OUTPUT),
       signal,
@@ -111,6 +134,27 @@ export async function isOutputReady() {
   if (!outputMarker) return true;
   const marker = await lstat(join(directory, outputMarker)).catch(() => null);
   return marker?.isFile() ?? false;
+}
+
+export async function readSources(
+  withDownloader: WithDownloader,
+  signal: AbortSignal,
+) {
+  let failures = 0;
+  let ids: string[];
+  try {
+    ids = await withDownloader(
+      async (downloader) => downloader.sources(),
+      signal,
+      () => {
+        failures++;
+      },
+    );
+  } catch {
+    ids = [];
+    failures++;
+  }
+  return { ids, failures, unavailable: failures > 0 };
 }
 
 export function resolveDownloadInput(

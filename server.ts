@@ -13,6 +13,13 @@ app.disable("x-powered-by");
 const server = createServer(app);
 
 const vite = development ? await startVite() : undefined;
+const { adminOrigin } = await import("./app/downloader.server.ts");
+
+function allowProxyOrigin(build: ServerBuild): ServerBuild {
+  return adminOrigin
+    ? { ...build, allowedActionOrigins: [new URL(adminOrigin).host] }
+    : build;
+}
 
 async function startVite() {
   const signals = ["SIGTERM", "SIGINT"] as const;
@@ -34,13 +41,15 @@ async function startVite() {
 let build: ServerBuild | (() => Promise<ServerBuild>);
 if (vite) {
   app.use(vite.middlewares);
-  build = () =>
-    vite.ssrLoadModule(
-      "virtual:react-router/server-build",
-    ) as Promise<ServerBuild>;
+  build = async () =>
+    allowProxyOrigin(
+      (await vite.ssrLoadModule(
+        "virtual:react-router/server-build",
+      )) as ServerBuild,
+    );
 } else {
   const serverBuild = new URL("./build/server/index.js", import.meta.url);
-  build = (await import(serverBuild.href)) as ServerBuild;
+  build = allowProxyOrigin((await import(serverBuild.href)) as ServerBuild);
   app.use(
     "/assets",
     express.static("build/client/assets", { immutable: true, maxAge: "1y" }),
@@ -48,13 +57,13 @@ if (vite) {
   app.use(express.static("build/client"));
 }
 
-const { startShelfWatcher } = await import("./app/shelf-watcher.server.ts");
-const shelfWatcher = startShelfWatcher();
+const { createComicRuntime } = await import("./app/comic-runtime.server.ts");
+const comics = await createComicRuntime();
 app.all(
   "*",
   createRequestHandler({
     build,
-    getLoadContext: () => ({ shelfWatcher }),
+    getLoadContext: () => ({ comics }),
     mode: process.env.NODE_ENV,
   }),
 );
@@ -72,7 +81,7 @@ server.listen(port, host, () => {
 async function shutdown() {
   server.close();
   server.closeAllConnections();
-  await shelfWatcher.stop();
+  await comics.stop();
   await vite?.close();
 }
 

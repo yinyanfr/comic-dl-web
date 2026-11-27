@@ -5,9 +5,9 @@ import {
   fixtureDirectory,
   resolveDownloadInput,
   shelfFile,
-  withAppDownloader,
 } from "./downloader.server";
 import { sourceInput, workInput } from "./source-input.server";
+import type { ComicRuntime } from "./comic-runtime.server";
 
 interface ShelfActionData {
   message?: string;
@@ -56,21 +56,6 @@ export async function readShelf() {
   });
 }
 
-export async function readShelfSources(signal: AbortSignal) {
-  let unavailable = false;
-  const ids: string[] = await withAppDownloader(
-    async (downloader) => downloader.sources(),
-    signal,
-    () => {
-      unavailable = true;
-    },
-  ).catch(() => {
-    unavailable = true;
-    return [];
-  });
-  return { ids, unavailable };
-}
-
 const entryAction = z.discriminatedUnion("intent", [
   z.object({
     intent: z.enum(["follow", "pause", "remove", "check", "history"]),
@@ -85,7 +70,10 @@ const entryAction = z.discriminatedUnion("intent", [
   }),
 ]);
 
-export async function handleShelfAction(request: Request, notify: () => void) {
+export async function handleShelfAction(
+  request: Request,
+  { withDownloader, shelfWatcher: { notify } }: ComicRuntime,
+) {
   if (request.headers.get("Sec-Fetch-Site")?.endsWith("-site")) {
     return respond({ error: "请从本页面发起请求。" }, { status: 403 });
   }
@@ -106,7 +94,13 @@ export async function handleShelfAction(request: Request, notify: () => void) {
           { status: 400 },
         );
       }
-      await withAppDownloader(
+      const title = z
+        .string()
+        .trim()
+        .min(1)
+        .max(512)
+        .safeParse(form.get("title")).data;
+      await withDownloader(
         async (downloader) => {
           const { locator, source } = resolveDownloadInput(
             downloader,
@@ -115,7 +109,7 @@ export async function handleShelfAction(request: Request, notify: () => void) {
             target.data.source,
           );
           await withShelf(
-            (shelf) => shelf.add(locator, { source, signal }),
+            (shelf) => shelf.add(locator, { source, signal, title }),
             downloader,
           );
         },
@@ -132,7 +126,7 @@ export async function handleShelfAction(request: Request, notify: () => void) {
     const operation = parsed.data;
 
     if (operation.intent === "edit") {
-      await withAppDownloader(
+      await withDownloader(
         async (downloader) => {
           await withShelf(async (shelf) => {
             const entry = shelf
@@ -160,7 +154,7 @@ export async function handleShelfAction(request: Request, notify: () => void) {
       operation.intent === "check-all" ||
       operation.intent === "history"
     ) {
-      const result = await withAppDownloader(
+      const result = await withDownloader(
         (downloader) =>
           withShelf(
             (shelf) =>

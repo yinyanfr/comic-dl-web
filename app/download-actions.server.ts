@@ -4,7 +4,7 @@ import { downloadQueue } from "./download-queue.server";
 import {
   isOutputReady,
   resolveDownloadInput,
-  withAppDownloader,
+  type WithDownloader,
 } from "./downloader.server";
 import { sourceInput } from "./source-input.server";
 
@@ -29,7 +29,10 @@ const chapterSelection = z
   })
   .refine(({ chapters, range }) => chapters.length > 0 || range.length > 0);
 
-export async function handleDownloadAction(request: Request) {
+export async function handleDownloadAction(
+  request: Request,
+  withDownloader: WithDownloader,
+) {
   if (request.headers.get("Sec-Fetch-Site")?.endsWith("-site")) {
     return respond({ error: "请从本页面发起请求。" }, { status: 403 });
   }
@@ -80,7 +83,7 @@ export async function handleDownloadAction(request: Request) {
 
   if (intent === "list") {
     try {
-      const series = await withAppDownloader(async (downloader) => {
+      const series = await withDownloader(async (downloader) => {
         const { locator, source } = resolveDownloadInput(
           downloader,
           input,
@@ -107,7 +110,7 @@ export async function handleDownloadAction(request: Request) {
 
   let source: string;
   try {
-    source = await withAppDownloader(
+    source = await withDownloader(
       async (downloader) =>
         resolveDownloadInput(downloader, input, kind, explicitSource).source,
       request.signal,
@@ -125,7 +128,7 @@ export async function handleDownloadAction(request: Request) {
     );
   }
   const taskId = downloadQueue.submit(source, kind, (signal, onResult) =>
-    withAppDownloader(async (downloader) => {
+    withDownloader(async (downloader) => {
       const { locator } = resolveDownloadInput(downloader, input, kind, source);
       if (!(await isOutputReady()))
         throw new Error("Output marker unavailable");

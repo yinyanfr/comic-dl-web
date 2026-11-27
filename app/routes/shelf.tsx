@@ -12,11 +12,8 @@ import {
   Title,
 } from "@mantine/core";
 import { Link, useFetcher } from "react-router";
-import {
-  handleShelfAction,
-  readShelf,
-  readShelfSources,
-} from "../shelf.server";
+import { handleShelfAction, readShelf } from "../shelf.server";
+import { readSources } from "../downloader.server";
 import { useTaskUpdates } from "../use-task-updates";
 import type { Route } from "./+types/shelf";
 import styles from "./home.module.css";
@@ -28,13 +25,13 @@ export function meta() {
 export async function loader({ context, request }: Route.LoaderArgs) {
   const [entries, sources] = await Promise.all([
     readShelf().catch(() => null),
-    readShelfSources(request.signal),
+    readSources(context.comics.withDownloader, request.signal),
   ]);
-  return { entries, sources, watcher: context.shelfWatcher.snapshot() };
+  return { entries, sources, watcher: context.comics.shelfWatcher.snapshot() };
 }
 
 export function action({ request, context }: Route.ActionArgs) {
-  return handleShelfAction(request, context.shelfWatcher.notify);
+  return handleShelfAction(request, context.comics);
 }
 
 const checkResults = {

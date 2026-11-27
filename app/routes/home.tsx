@@ -18,7 +18,8 @@ import { Link, useFetcher } from "react-router";
 import { DownloadTasks } from "../download-tasks";
 import { handleDownloadAction } from "../download-actions.server";
 import { downloadQueue } from "../download-queue.server";
-import { withAppDownloader } from "../downloader.server";
+import { readSources } from "../downloader.server";
+import { reusableWebUrl, sourceInput } from "../source-input.server";
 import type { Route } from "./+types/home";
 import type { action as shelfAction } from "./shelf";
 import styles from "./home.module.css";
@@ -27,23 +28,29 @@ export function meta() {
   return [{ title: "comic-dl-web" }];
 }
 
-export async function loader({ request }: Route.LoaderArgs) {
-  const sources: { ids: string[]; unavailable: boolean } =
-    await withAppDownloader(
-      async (downloader) => downloader.sources(),
-      request.signal,
-    )
-      .then((ids) => ({ ids, unavailable: false }))
-      .catch(() => ({ ids: [], unavailable: true }));
-  return { sources, tasks: downloadQueue.snapshot() };
+export async function loader({ request, context }: Route.LoaderArgs) {
+  const sources = await readSources(
+    context.comics.withDownloader,
+    request.signal,
+  );
+  const params = new URL(request.url).searchParams;
+  const target = sourceInput.safeParse({
+    input: params.get("input"),
+    source: params.get("source") || undefined,
+  }).data;
+  const preset =
+    target && (!URL.canParse(target.input) || reusableWebUrl(target.input))
+      ? target
+      : undefined;
+  return { sources, tasks: downloadQueue.snapshot(), preset };
 }
 
-export function action({ request }: Route.ActionArgs) {
-  return handleDownloadAction(request);
+export function action({ request, context }: Route.ActionArgs) {
+  return handleDownloadAction(request, context.comics.withDownloader);
 }
 
 export default function Home({
-  loaderData: { sources, tasks },
+  loaderData: { sources, tasks, preset },
 }: Route.ComponentProps) {
   const lookup = useFetcher<typeof action>();
   const download = useFetcher<typeof action>();
@@ -63,9 +70,17 @@ export default function Home({
           <Title order={1}>comic-dl-web</Title>
           <Text c="dimmed">自托管漫画下载 · 每章一个 CBZ</Text>
         </div>
-        <Button component={Link} to="/shelf" variant="subtle" ml="auto">
-          书架
-        </Button>
+        <Group ml="auto" gap="xs">
+          <Button component={Link} to="/catalog" variant="subtle">
+            漫画目录
+          </Button>
+          <Button component={Link} to="/shelf" variant="subtle">
+            书架
+          </Button>
+          <Button component={Link} to="/extensions" variant="subtle">
+            扩展市场
+          </Button>
+        </Group>
       </Group>
 
       <div className={styles.workspace}>
@@ -84,13 +99,14 @@ export default function Home({
               输入作品链接查看章节，或直接下载单个章节。
             </Text>
             {sources.unavailable ? (
-              <Alert color="red" mb="md">
-                无法加载漫画源，请检查服务端配置。
+              <Alert color="yellow" mb="md">
+                部分或全部漫画源无法加载，请检查扩展市场和服务端配置。
               </Alert>
             ) : sources.ids.length === 0 ? (
               <Alert mb="md">尚未加载漫画源。</Alert>
             ) : null}
             <lookup.Form
+              key={JSON.stringify(preset ?? null)}
               method="post"
               onSubmit={(event) => {
                 download.reset();
@@ -103,6 +119,7 @@ export default function Home({
               <Stack gap="sm">
                 <NativeSelect
                   name="source"
+                  defaultValue={preset?.source ?? ""}
                   label="漫画源"
                   data={[
                     { value: "", label: "使用默认源或按链接识别" },
@@ -112,6 +129,7 @@ export default function Home({
                 />
                 <TextInput
                   name="input"
+                  defaultValue={preset?.input ?? ""}
                   label="作品或章节链接 / 短 ID"
                   placeholder={
                     sources.ids.includes("fixture")
