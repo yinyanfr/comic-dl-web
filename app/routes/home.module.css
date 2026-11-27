@@ -1,0 +1,7 @@
+.main {
+  padding-block: clamp(2rem, 8vw, 5rem);
+}
+
+.sources {
+  border-block-start: 3px solid var(--mantine-primary-color-filled);
+}
