@@ -2,18 +2,32 @@ import type {
   OptionChoice,
   OptionDefinition,
   OptionValues,
+  SearchPage,
 } from "comic-dl/extension";
 import { z } from "zod";
 import type { ComicRuntime } from "./comic-runtime.server";
 import { readOptionFields } from "./option-fields.server";
 import { reusableWebUrl, sourceId, workInput } from "./source-input.server";
+import {
+  hasSourceCredential,
+  normalizeCredentialTarget,
+} from "./source-credentials.server";
 
 const queryParams = z.object({
   source: sourceId.optional(),
   query: z.string().trim().max(200),
-  page: z.coerce.number().int().safe().positive(),
+  page: z.coerce.number().int().positive(),
   sort: z.string().max(200).optional(),
 });
+
+export type CatalogWork = { title: string; input: string; coverUrl?: string };
+
+type SourceResults = {
+  source: string;
+  results?: CatalogWork[];
+  hasNext?: boolean;
+  issue?: "unconfigured" | "unavailable";
+};
 
 interface CatalogData {
   sources: string[];
@@ -26,16 +40,35 @@ interface CatalogData {
     sorts: readonly OptionChoice[];
     filters: Record<string, OptionDefinition>;
   };
-  results?: { title: string; input: string }[];
+  results?: CatalogWork[];
+  groups?: SourceResults[];
   hasNext: boolean;
   error?: string;
 }
 
+function publicWorks(search: SearchPage) {
+  return search.results.flatMap((work): CatalogWork[] => {
+    const input = workInput.safeParse(work.url).data;
+    if (!input || (URL.canParse(input) && !reusableWebUrl(input))) return [];
+    // Cover metadata is optional for independently published source extensions.
+    const cover = "coverUrl" in work ? work.coverUrl : undefined;
+    const coverUrl =
+      typeof cover === "string" && cover.length <= 4096 && reusableWebUrl(cover)
+        ? cover
+        : undefined;
+    return [{ title: work.title.slice(0, 512) || input, input, coverUrl }];
+  });
+}
+
 export async function loadCatalog(
+  url: URL,
   request: Request,
-  { withDownloader }: ComicRuntime,
+  {
+    inspect,
+    usesBundledSource,
+  }: Pick<ComicRuntime, "inspect" | "usesBundledSource">,
 ): Promise<CatalogData> {
-  const params = new URL(request.url).searchParams;
+  const params = url.searchParams;
   const parsed = queryParams.safeParse({
     source: params.get("source") || undefined,
     query: params.get("q") ?? "",
@@ -50,14 +83,47 @@ export async function loadCatalog(
     hasNext: false,
   };
   const signal = AbortSignal.any([request.signal, AbortSignal.timeout(30_000)]);
-  return withDownloader(async (downloader) => {
+  return inspect(async (downloader, { credentials }) => {
     const sources = downloader.sources();
     if (!parsed.success)
       return { ...initial, sources, error: "目录查询参数无效。" };
     const selection = parsed.data;
     const result: CatalogData = { ...initial, sources, ...selection };
     const { source, query, page, sort } = selection;
-    if (!source) return result;
+    if (!source) {
+      if (!query) return result;
+      result.groups = await Promise.all(
+        sources.map(async (id): Promise<SourceResults> => {
+          try {
+            if (
+              (id === "komga" || id === "kavita") &&
+              usesBundledSource(downloader, id)
+            ) {
+              const settings = downloader.validateSourceSettings(id);
+              const target = normalizeCredentialTarget(
+                id,
+                settings["server-url"],
+              );
+              if (!target || !hasSourceCredential(id, credentials, target))
+                return { source: id, issue: "unconfigured" };
+            }
+            const search = await downloader.search(query, {
+              source: id,
+              page: 1,
+              signal: AbortSignal.any([signal, AbortSignal.timeout(10_000)]),
+            });
+            return {
+              source: id,
+              results: publicWorks(search),
+              hasNext: search.hasNext,
+            };
+          } catch {
+            return { source: id, issue: "unavailable" };
+          }
+        }),
+      );
+      return result;
+    }
     if (!sources.includes(source))
       return { ...result, error: "所选漫画源当前不可用。" };
     try {
@@ -89,12 +155,7 @@ export async function loadCatalog(
         filters: result.filters,
         signal,
       });
-      result.results = search.results.flatMap(({ title, url }) => {
-        const input = workInput.safeParse(url).data;
-        if (!input || (URL.canParse(input) && !reusableWebUrl(input)))
-          return [];
-        return [{ title: title.slice(0, 512) || input, input }];
-      });
+      result.results = publicWorks(search);
       result.hasNext = search.hasNext;
       return result;
     } catch (error) {
@@ -104,7 +165,7 @@ export async function loadCatalog(
       return {
         ...result,
         error: unsupported
-          ? "这个来源不支持目录浏览或搜索，可在首页直接输入作品。"
+          ? "这个来源不支持目录浏览或搜索，可通过手动下载输入作品。"
           : "无法获取目录结果。请检查关键词、筛选条件和来源设置。",
       };
     }

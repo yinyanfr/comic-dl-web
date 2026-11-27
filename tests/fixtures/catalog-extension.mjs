@@ -67,6 +67,7 @@ export default {
                 page,
               ].join(" "),
               url: `https://catalog.example/demo?group=${filters?.group || "all"}`,
+              coverUrl: "https://catalog.example/cover.png",
             },
             {
               title: "带凭据的结果",
@@ -83,7 +84,16 @@ export default {
         if (new URL(input).searchParams.get("group") === "different") {
           return { id: "different-work", chapters };
         }
-        return { id: "demo", chapters };
+        return {
+          id: "demo",
+          chapters,
+          metadata: {
+            authors: ["离线作者"],
+            summary: "一部离线测试漫画。",
+            tags: ["冒险"],
+            coverUrl: "https://catalog.example/cover.png",
+          },
+        };
       },
       async getChapter() {
         return { workId: "demo", chapter: chapter("opening") };

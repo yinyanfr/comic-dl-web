@@ -7,9 +7,10 @@ import type { ComicRuntime } from "./comic-runtime.server";
 import {
   isOutputReady,
   resolveDownloadInput,
-  watchOptions,
+  type WithDownloader,
 } from "./downloader.server";
-import { sourceInput } from "./source-input.server";
+import { reusableWebUrl, sourceInput } from "./source-input.server";
+import { findShelfWork } from "./shelf.server";
 
 interface DownloadActionData {
   error?: string;
@@ -22,10 +23,37 @@ interface DownloadActionData {
 }
 
 const respond = data<DownloadActionData>;
+const workMetadata = z.object({
+  title: z.string().trim().min(1).max(512).optional().catch(undefined),
+  authors: z
+    .array(z.string().trim().min(1).max(128))
+    .max(30)
+    .optional()
+    .catch(undefined),
+  summary: z.string().trim().min(1).max(10_000).optional().catch(undefined),
+  tags: z
+    .array(z.string().trim().min(1).max(128))
+    .max(50)
+    .optional()
+    .catch(undefined),
+  coverUrl: z
+    .string()
+    .max(4096)
+    .refine(reusableWebUrl)
+    .optional()
+    .catch(undefined),
+});
+
+function readWorkMetadata(series: Series) {
+  return workMetadata.safeParse(
+    "metadata" in series ? series.metadata : undefined,
+  ).data;
+}
 
 const chapterSelection = z
   .object({
     catalog: z.string().regex(/^[a-f0-9]{64}$/),
+    all: z.boolean(),
     chapters: z.array(z.string().min(1).max(4096)).max(10_000),
     range: z.union([
       z.literal(""),
@@ -35,7 +63,10 @@ const chapterSelection = z
         .regex(/^[0-9]+-[0-9]+$/),
     ]),
   })
-  .refine(({ chapters, range }) => chapters.length > 0 || range.length > 0);
+  .refine(
+    ({ chapters, range, all }) =>
+      all || chapters.length > 0 || range.length > 0,
+  );
 
 function catalogVersion(series: Series, input: string, source: string) {
   return createHash("sha256")
@@ -57,6 +88,7 @@ function selectChapters(
   selection: z.infer<typeof chapterSelection>,
 ) {
   if (catalogVersion(series, input, source) !== selection.catalog) return;
+  if (selection.all) return series.chapters.length ? series : undefined;
   const ids = new Set(selection.chapters);
   if (selection.range) {
     const [first, last] = selection.range.split("-").map(Number);
@@ -69,9 +101,36 @@ function selectChapters(
   return { ...series, chapters };
 }
 
+export function readWork(
+  withDownloader: WithDownloader,
+  input: string,
+  explicitSource: string | undefined,
+  requestSignal: AbortSignal,
+) {
+  const signal = AbortSignal.any([requestSignal, AbortSignal.timeout(30_000)]);
+  return withDownloader(async (downloader) => {
+    const { locator, source } = resolveDownloadInput(
+      downloader,
+      input,
+      "series",
+      explicitSource,
+    );
+    const result = await downloader.list(locator, { source, signal });
+    return {
+      workId: result.id,
+      metadata: readWorkMetadata(result),
+      series: {
+        source,
+        catalog: catalogVersion(result, input, source),
+        chapters: result.chapters.map(({ id, title }) => ({ id, title })),
+      },
+    };
+  }, signal);
+}
+
 export async function handleDownloadAction(
   request: Request,
-  { withDownloader, downloadQueue }: ComicRuntime,
+  { withDownloader, downloadQueue, directory }: ComicRuntime,
 ) {
   if (request.headers.get("Sec-Fetch-Site")?.endsWith("-site")) {
     return respond({ error: "请从本页面发起请求。" }, { status: 403 });
@@ -80,6 +139,10 @@ export async function handleDownloadAction(
   if (!form) return respond({ error: "无法读取表单。" }, { status: 400 });
 
   const intent = form.get("intent");
+  if (intent === "clear-finished") {
+    downloadQueue.clearFinished();
+    return respond({});
+  }
   if (intent === "cancel") {
     const id = z.uuid().safeParse(form.get("taskId"));
     if (!id.success || !downloadQueue.cancel(id.data)) {
@@ -87,7 +150,12 @@ export async function handleDownloadAction(
     }
     return respond({});
   }
-  if (intent !== "list" && intent !== "series" && intent !== "chapter") {
+  if (
+    intent !== "list" &&
+    intent !== "series" &&
+    intent !== "missing" &&
+    intent !== "chapter"
+  ) {
     return respond({ error: "无法识别请求的操作。" }, { status: 400 });
   }
 
@@ -104,13 +172,18 @@ export async function handleDownloadAction(
   const { input, source: explicitSource } = target.data;
   const kind = intent === "chapter" ? "chapter" : "series";
   let selections: z.infer<typeof chapterSelection> | undefined;
-  if (intent === "series") {
+  if (intent === "series" || intent === "missing") {
     const rangeInput = form.get("range");
     const selection = chapterSelection.safeParse({
-      chapters: form.getAll("chapterId"),
+      chapters: intent === "missing" ? [] : form.getAll("chapterId"),
+      all: intent === "missing",
       catalog: form.get("catalog"),
       range:
-        typeof rangeInput === "string" ? rangeInput.trim() : (rangeInput ?? ""),
+        intent === "missing"
+          ? ""
+          : typeof rangeInput === "string"
+            ? rangeInput.trim()
+            : (rangeInput ?? ""),
     });
     if (!selection.success) {
       return respond(
@@ -123,23 +196,12 @@ export async function handleDownloadAction(
 
   if (intent === "list") {
     try {
-      const series = await withDownloader(async (downloader) => {
-        const { locator, source } = resolveDownloadInput(
-          downloader,
-          input,
-          kind,
-          explicitSource,
-        );
-        const result = await downloader.list(locator, {
-          source,
-          signal: request.signal,
-        });
-        return {
-          source,
-          catalog: catalogVersion(result, input, source),
-          chapters: result.chapters.map(({ id, title }) => ({ id, title })),
-        };
-      }, request.signal);
+      const { series } = await readWork(
+        withDownloader,
+        input,
+        explicitSource,
+        request.signal,
+      );
       return respond({ series });
     } catch {
       return respond(
@@ -162,29 +224,66 @@ export async function handleDownloadAction(
       { status: 422 },
     );
   }
-  if (!(await isOutputReady())) {
+  if (
+    !(await directory()
+      .then(isOutputReady)
+      .catch(() => false))
+  ) {
     return respond(
-      { error: "漫画输出目录的挂载标记不可用，请恢复挂载后再提交。" },
+      { error: "漫画输出目录或挂载标记不可用，请恢复后再提交。" },
       { status: 503 },
     );
   }
-  const taskId = downloadQueue.submit(source, kind, (signal, onResult) =>
-    withDownloader(async (downloader) => {
-      const { locator } = resolveDownloadInput(downloader, input, kind, source);
-      if (!(await isOutputReady()))
-        throw new Error("Output marker unavailable");
-      const options = { source, signal, onResult };
-      if (!selections) {
-        await downloader.downloadChapter(locator, options);
-        return;
-      }
-      const current = await downloader.list(locator, options);
-      const selected = selectChapters(current, input, source, selections);
-      if (!selected) return "invalid-selection";
-      // Give the public core API the exact catalog we validated, so it cannot
-      // re-read a changing source or interpret a missing chapter ID as a range.
-      const snapshot = createDownloader({ output: watchOptions.directory }).use(
-        {
+  const title = z
+    .string()
+    .trim()
+    .min(1)
+    .max(512)
+    .safeParse(form.get("title")).data;
+  const taskId = downloadQueue.submit(
+    source,
+    kind,
+    (signal, onResult, describe) =>
+      withDownloader(async (downloader) => {
+        const { locator } = resolveDownloadInput(
+          downloader,
+          input,
+          kind,
+          source,
+        );
+        const output = await directory();
+        if (!(await isOutputReady(output)))
+          throw new Error("Output marker unavailable");
+        const options = { source, signal, onResult, directory: output };
+        if (!selections) {
+          await downloader.downloadChapter(locator, options);
+          return;
+        }
+        const current = await downloader.list(locator, options);
+        const selected = selectChapters(current, input, source, selections);
+        if (!selected) return "invalid-selection";
+        const saved = await findShelfWork({
+          sourceId: source,
+          workId: current.id,
+        }).catch(() => undefined);
+        const ids = new Set(selected.chapters.map(({ id }) => id));
+        describe(
+          {
+            id: current.id,
+            title:
+              saved?.title ??
+              readWorkMetadata(current)?.title ??
+              title ??
+              (!URL.canParse(input) ? input.slice(0, 128) : undefined) ??
+              `作品 · ${source}`,
+          },
+          current.chapters.flatMap(({ id, title }, index) =>
+            ids.has(id) ? [{ id, title, number: index + 1 }] : [],
+          ),
+        );
+        // Give the public core API the exact catalog we validated, so it cannot
+        // re-read a changing source or interpret a missing chapter ID as a range.
+        const snapshot = createDownloader().use({
           apiVersion: extensionApiVersion,
           id: source,
           create: () => ({
@@ -194,10 +293,9 @@ export async function handleDownloadAction(
               throw new Error("Only the selected series is available");
             },
           }),
-        },
-      );
-      await snapshot.download(locator, options);
-    }, signal),
+        });
+        await snapshot.download(locator, options);
+      }, signal),
   );
   if (!taskId) {
     return respond({ error: "下载队列已满，请稍后重试。" }, { status: 429 });

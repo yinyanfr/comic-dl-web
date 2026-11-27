@@ -6,12 +6,34 @@ import {
   resolveDownloadInput,
   shelfFile,
 } from "./downloader.server";
-import { sourceInput, workInput } from "./source-input.server";
+import { reusableWebUrl, sourceInput, workInput } from "./source-input.server";
 import type { ComicRuntime } from "./comic-runtime.server";
 
 interface ShelfActionData {
   message?: string;
   error?: string;
+}
+
+function publicInput(sourceId: string, input: string) {
+  if (sourceId === "fixture") return fixtureDirectory === input ? "demo" : "";
+  if (URL.canParse(input) && !reusableWebUrl(input)) return "";
+  return workInput.safeParse(input).data ?? "";
+}
+
+export function findShelfWork(
+  match: { id: string } | { sourceId: string; workId: string },
+) {
+  return withShelf((shelf) => {
+    const entry = shelf
+      .list()
+      .find((entry) =>
+        "id" in match
+          ? entry.id === match.id
+          : entry.sourceId === match.sourceId && entry.workId === match.workId,
+      );
+    if (!entry) return undefined;
+    return { ...entry, input: publicInput(entry.sourceId, entry.input) };
+  });
 }
 
 const respond = data<ShelfActionData>;
@@ -45,12 +67,7 @@ export async function readShelf(requestedPage: number) {
         return {
           id,
           sourceId,
-          input:
-            sourceId === "fixture"
-              ? fixtureDirectory === input
-                ? "demo"
-                : ""
-              : (workInput.safeParse(input).data ?? ""),
+          input: publicInput(sourceId, input),
           title,
           following: Boolean(following),
           status: status && {
@@ -75,8 +92,8 @@ export async function readShelf(requestedPage: number) {
   });
 }
 
-export function shelfPage(request: Request) {
-  const page = Number(new URL(request.url).searchParams.get("page") ?? 1);
+export function shelfPage(url: URL) {
+  const page = Number(url.searchParams.get("page") ?? 1);
   return Number.isSafeInteger(page) && page > 0 ? page : 1;
 }
 

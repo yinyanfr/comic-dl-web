@@ -1,10 +1,12 @@
+import { comicsContext } from "../comic-runtime.server";
 import type { Route } from "./+types/task-events";
 
 const encoder = new TextEncoder();
 const heartbeat = encoder.encode(": keepalive\n\n");
 
-export function loader({ request, context }: Route.LoaderArgs) {
-  const forShelf = new URL(request.url).searchParams.get("scope") === "shelf";
+export function loader({ request, context, url }: Route.LoaderArgs) {
+  const comics = context.get(comicsContext);
+  const forShelf = url.searchParams.get("scope") === "shelf";
   const changeEvent = encoder.encode(
     `event: ${forShelf ? "shelf" : "tasks"}\ndata: changed\n\n`,
   );
@@ -24,8 +26,8 @@ export function loader({ request, context }: Route.LoaderArgs) {
         flush(controller);
       };
       const unsubscribe = forShelf
-        ? context.comics.shelfWatcher.subscribe(publish)
-        : context.comics.downloadQueue.subscribe(publish);
+        ? comics.shelfWatcher.subscribe(publish)
+        : comics.downloadQueue.subscribe(publish);
       const interval = setInterval(() => {
         if ((controller.desiredSize ?? 0) > 0) controller.enqueue(heartbeat);
       }, 15_000);

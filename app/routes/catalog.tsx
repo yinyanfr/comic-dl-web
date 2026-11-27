@@ -1,76 +1,78 @@
 import {
   Alert,
+  Anchor,
   Button,
   Container,
   Group,
   NativeSelect,
+  Image,
   Paper,
+  SimpleGrid,
   Stack,
   Text,
   TextInput,
   Title,
 } from "@mantine/core";
-import { Form, Link, useFetcher } from "react-router";
-import { loadCatalog } from "../catalog.server";
+import { Form, Link, useLocation, useNavigation } from "react-router";
+import { loadCatalog, type CatalogWork } from "../catalog.server";
+import { comicsContext } from "../comic-runtime.server";
+import { extensionCatalog } from "../extension-catalog";
 import { OptionField } from "../option-field";
 import type { Route } from "./+types/catalog";
-import type { action as shelfAction } from "./shelf";
 import styles from "./home.module.css";
 
 export function meta() {
-  return [{ title: "漫画目录 · comic-dl-web" }];
+  return [{ title: "浏览来源 · comic-dl-web" }];
 }
 
-export function loader({ request, context }: Route.LoaderArgs) {
-  return loadCatalog(request, context.comics);
+export function loader({ request, context, url }: Route.LoaderArgs) {
+  return loadCatalog(url, request, context.get(comicsContext));
 }
 
-function Result({
+function WorkGrid({
+  results,
   source,
-  result,
 }: {
+  results: CatalogWork[];
   source: string;
-  result: { title: string; input: string };
 }) {
-  const collect = useFetcher<typeof shelfAction>();
-  const download = new URLSearchParams({ source, input: result.input });
+  const { search } = useLocation();
+  if (!results.length) return <Text c="dimmed">没有找到作品。</Text>;
   return (
-    <Paper component="article" p="md" withBorder>
-      <Stack gap="xs">
-        <Title order={3} size="h6">
-          {result.title}
-        </Title>
-        <Group>
-          <Button component={Link} to={`/?${download}`} variant="light">
-            查看与下载
-          </Button>
-          <collect.Form method="post" action="/shelf">
-            <input type="hidden" name="source" value={source} />
-            <input type="hidden" name="input" value={result.input} />
-            <input type="hidden" name="title" value={result.title} />
-            <Button
-              type="submit"
-              name="intent"
-              value="add"
-              variant="subtle"
-              disabled={collect.state !== "idle"}
-            >
-              加入书架
-            </Button>
-          </collect.Form>
-        </Group>
-        {collect.state === "idle" && collect.data?.error && (
-          <Alert role="alert" color="red">
-            {collect.data.error}
-          </Alert>
-        )}
-        {collect.state === "idle" && collect.data?.message && (
-          <Text role="status" size="sm">
-            {collect.data.message}
-          </Text>
-        )}
-      </Stack>
-    </Paper>
+    <SimpleGrid cols={{ base: 2, xs: 3, sm: 4, md: 6 }}>
+      {results.map(({ input, title, coverUrl }, index) => (
+        <Paper
+          component="article"
+          withBorder
+          key={`${input}:${index}`}
+          className={styles.workCard}
+        >
+          <Link
+            className={styles.workLink}
+            to={`/work?${new URLSearchParams({ source, input, title })}`}
+            state={{ catalog: `/catalog${search}` }}
+          >
+            <div className={styles.cover} aria-hidden="true">
+              <span>暂无封面</span>
+              {coverUrl && (
+                <Image
+                  src={coverUrl}
+                  alt=""
+                  loading="lazy"
+                  referrerPolicy="no-referrer"
+                  onError={({ currentTarget }) => {
+                    currentTarget.hidden = true;
+                  }}
+                />
+              )}
+            </div>
+            <Title order={3} size="h6" p="xs">
+              {title}
+            </Title>
+          </Link>
+        </Paper>
+      ))}
+    </SimpleGrid>
   );
 }
 
@@ -84,151 +86,275 @@ export default function Catalog({ loaderData }: Route.ComponentProps) {
     options,
     filters,
     results,
+    groups,
     hasNext,
     error,
   } = loaderData;
+  const { search } = useLocation();
+  const navigation = useNavigation();
+  const pending = navigation.location?.pathname === "/catalog";
   const choices = Object.entries(options?.filters ?? {});
   const sorts = options?.sorts ?? [];
+  const selected = extensionCatalog.find(({ id }) => id === source);
+  const settingsUrl = `/extensions#source-${source}`;
 
   function pageLink(number: number) {
-    const params = new URLSearchParams({
-      source: source ?? "",
-      q: query,
-      page: String(number),
-    });
-    if (sort) params.set("sort", sort);
-    for (const [name, value] of Object.entries(filters))
-      params.set(`option.${name}`, String(value));
+    const params = new URLSearchParams(search);
+    params.set("page", String(number));
     return `/catalog?${params}`;
   }
 
   return (
     <Container component="main" size="lg" className={styles.main}>
       <Stack gap="lg">
-        <Group component="header" justify="space-between">
-          <Title order={1}>漫画目录</Title>
-          <Group gap="xs">
-            <Button component={Link} to="/" variant="subtle">
-              手动下载
-            </Button>
-            <Button component={Link} to="/shelf" variant="subtle">
-              书架
-            </Button>
-            <Button component={Link} to="/extensions" variant="subtle">
-              扩展市场
-            </Button>
-          </Group>
-        </Group>
-        <Paper
-          component="section"
-          aria-labelledby="catalog-heading"
-          p="lg"
-          withBorder
-        >
-          <Stack gap="md">
-            <Title id="catalog-heading" order={2} size="h4">
-              浏览与搜索
-            </Title>
-            {sources.length === 0 && (
-              <Text c="dimmed">还没有可用来源。请先到扩展市场安装来源。</Text>
-            )}
-            <Form method="get" key={JSON.stringify([source, query])}>
-              <Group align="end">
-                <NativeSelect
-                  name="source"
-                  label="漫画源"
-                  required
-                  defaultValue={source ?? ""}
-                  data={[{ value: "", label: "请选择来源" }, ...sources]}
-                />
-                <TextInput
-                  name="q"
-                  label="关键词"
-                  placeholder="留空浏览目录"
-                  maxLength={200}
-                  defaultValue={query}
-                />
-                <Button type="submit" disabled={sources.length === 0}>
-                  浏览 / 搜索
-                </Button>
-              </Group>
-            </Form>
-            {source && (sorts.length > 0 || choices.length > 0) && (
-              <Form
-                method="get"
-                key={JSON.stringify([source, query, sort, filters, options])}
-              >
-                <input type="hidden" name="source" value={source} />
-                <input type="hidden" name="q" value={query} />
-                <Group align="end">
-                  {sorts.length > 0 && (
-                    <NativeSelect
-                      name="sort"
-                      label="排序"
-                      defaultValue={sort ?? ""}
-                      data={[
-                        { value: "", label: "来源默认排序" },
-                        ...sorts.map(({ id, label }) => ({ value: id, label })),
-                      ]}
-                    />
-                  )}
-                  {choices.map(([name, definition]) => (
-                    <OptionField
-                      key={name}
-                      name={name}
-                      definition={definition}
-                      value={filters[name]}
-                      emptyLabel="不限"
-                    />
-                  ))}
-                  <Button type="submit" variant="light">
-                    应用排序与筛选
-                  </Button>
-                </Group>
-              </Form>
-            )}
+        {!source ? (
+          <>
+            <Title order={1}>浏览来源</Title>
             {error && (
-              <Alert color="yellow" role="alert">
+              <Alert role="alert" color="yellow">
                 {error}
               </Alert>
             )}
-          </Stack>
-        </Paper>
-        {source && results && (
-          <Stack component="section" aria-label="目录结果" gap="sm">
-            <Title order={2} size="h4">
-              {query ? "搜索结果" : "浏览结果"}
-            </Title>
-            {results.length === 0 && <Text c="dimmed">没有找到作品。</Text>}
-            {results.map((result, index) => (
-              <Result
-                key={`${result.input}:${index}`}
-                source={source}
-                result={result}
-              />
-            ))}
-            <Group aria-label="目录分页">
-              {page > 1 && (
-                <Button
-                  component={Link}
-                  to={pageLink(page - 1)}
-                  variant="light"
-                >
-                  上一页
-                </Button>
-              )}
-              <Text size="sm">第 {page} 页</Text>
-              {hasNext && (
-                <Button
-                  component={Link}
-                  to={pageLink(page + 1)}
-                  variant="light"
-                >
-                  下一页
-                </Button>
-              )}
+            {sources.length === 0 && (
+              <Text c="dimmed">还没有可用来源。请打开扩展市场检查设置。</Text>
+            )}
+            <Paper component="section" aria-label="聚合搜索" p="lg" withBorder>
+              <Form method="get" key={query}>
+                <Group align="end">
+                  <TextInput
+                    name="q"
+                    label="搜索全部来源"
+                    placeholder="输入漫画名称"
+                    maxLength={200}
+                    defaultValue={query}
+                    required
+                  />
+                  <Button type="submit" disabled={pending}>
+                    聚合搜索
+                  </Button>
+                </Group>
+              </Form>
+            </Paper>
+            {groups ? (
+              <Stack
+                component="section"
+                aria-label="聚合搜索结果"
+                aria-busy={pending}
+              >
+                {groups.map(({ source, results, issue, hasNext }) => {
+                  const params = new URLSearchParams({
+                    source,
+                    q: query,
+                    page: "2",
+                  });
+                  return (
+                    <Stack
+                      key={source}
+                      gap="xs"
+                      component="section"
+                      aria-label={source}
+                    >
+                      <Title order={2} size="h4">
+                        {extensionCatalog.find(({ id }) => id === source)
+                          ?.title ?? source}
+                      </Title>
+                      {issue && (
+                        <Text size="sm" c="dimmed">
+                          {issue === "unconfigured"
+                            ? "尚未配置服务器地址或密钥。"
+                            : "此来源暂时无法搜索。"}{" "}
+                          <Link to={`/extensions#source-${source}`}>
+                            来源设置
+                          </Link>
+                        </Text>
+                      )}
+                      {results && (
+                        <WorkGrid results={results} source={source} />
+                      )}
+                      {hasNext && (
+                        <Anchor
+                          component={Link}
+                          to={`/catalog?${params}`}
+                          size="sm"
+                        >
+                          查看此来源的下一页
+                        </Anchor>
+                      )}
+                    </Stack>
+                  );
+                })}
+                <Anchor component={Link} to="/catalog">
+                  返回全部来源目录
+                </Anchor>
+              </Stack>
+            ) : (
+              <SimpleGrid cols={{ base: 1, sm: 2, md: 3 }}>
+                {sources.map((id) => {
+                  const extension = extensionCatalog.find(
+                    (item) => item.id === id,
+                  );
+                  return (
+                    <Paper key={id} component="article" withBorder p="lg">
+                      <Stack gap="sm" justify="space-between" h="100%">
+                        <div>
+                          <Title order={2} size="h4">
+                            <Link
+                              className={styles.workLink}
+                              to={`/catalog?source=${id}`}
+                            >
+                              {extension?.title ?? id}
+                            </Link>
+                          </Title>
+                          {extension && (
+                            <Text size="sm" c="dimmed" mt="xs">
+                              {extension.description}
+                            </Text>
+                          )}
+                        </div>
+                        <Group gap="xs">
+                          <Button
+                            component={Link}
+                            to={`/catalog?source=${id}`}
+                            variant="light"
+                          >
+                            打开目录
+                          </Button>
+                          <Button
+                            component={Link}
+                            to={`/extensions#source-${id}`}
+                            variant="subtle"
+                          >
+                            来源设置
+                          </Button>
+                        </Group>
+                      </Stack>
+                    </Paper>
+                  );
+                })}
+              </SimpleGrid>
+            )}
+          </>
+        ) : (
+          <>
+            <Group justify="space-between">
+              <div>
+                <Anchor component={Link} to="/catalog" size="sm">
+                  全部来源
+                </Anchor>
+                <Title order={1}>{selected?.title ?? source}</Title>
+              </div>
+              <Button component={Link} to={settingsUrl} variant="subtle">
+                来源设置
+              </Button>
             </Group>
-          </Stack>
+            <Paper
+              component="section"
+              aria-label="搜索与筛选"
+              p="lg"
+              withBorder
+            >
+              <Stack gap="md">
+                <Form method="get" key={JSON.stringify([source, query])}>
+                  <input type="hidden" name="source" value={source} />
+                  <Group align="end">
+                    <TextInput
+                      name="q"
+                      label="关键词"
+                      placeholder="留空浏览目录"
+                      maxLength={200}
+                      defaultValue={query}
+                    />
+                    <Button type="submit" disabled={pending}>
+                      浏览 / 搜索
+                    </Button>
+                  </Group>
+                </Form>
+                {(sorts.length > 0 || choices.length > 0) && (
+                  <Form
+                    method="get"
+                    key={JSON.stringify([
+                      source,
+                      query,
+                      sort,
+                      filters,
+                      options,
+                    ])}
+                  >
+                    <input type="hidden" name="source" value={source} />
+                    <input type="hidden" name="q" value={query} />
+                    <Group align="end">
+                      {sorts.length > 0 && (
+                        <NativeSelect
+                          name="sort"
+                          label="排序"
+                          defaultValue={sort ?? ""}
+                          data={[
+                            { value: "", label: "来源默认排序" },
+                            ...sorts.map(({ id, label }) => ({
+                              value: id,
+                              label,
+                            })),
+                          ]}
+                        />
+                      )}
+                      {choices.map(([name, definition]) => (
+                        <OptionField
+                          key={name}
+                          name={name}
+                          definition={definition}
+                          value={filters[name]}
+                          emptyLabel="不限"
+                        />
+                      ))}
+                      <Button type="submit" variant="light" disabled={pending}>
+                        应用排序与筛选
+                      </Button>
+                    </Group>
+                  </Form>
+                )}
+              </Stack>
+            </Paper>
+            {error && (
+              <Alert color="yellow" role="alert">
+                {error} {selected?.description}{" "}
+                <Link to={settingsUrl}>查看来源设置</Link>
+              </Alert>
+            )}
+            {results && (
+              <Stack
+                component="section"
+                aria-label="目录结果"
+                gap="sm"
+                aria-busy={pending}
+              >
+                <Title order={2} size="h4">
+                  {query ? "搜索结果" : "浏览结果"}
+                </Title>
+                <WorkGrid results={results} source={source} />
+                <Group aria-label="目录分页">
+                  {page > 1 && (
+                    <Button
+                      component={Link}
+                      to={pageLink(page - 1)}
+                      variant="light"
+                    >
+                      上一页
+                    </Button>
+                  )}
+                  <Text size="sm">第 {page} 页</Text>
+                  {hasNext && (
+                    <Button
+                      component={Link}
+                      to={pageLink(page + 1)}
+                      variant="light"
+                    >
+                      下一页
+                    </Button>
+                  )}
+                </Group>
+              </Stack>
+            )}
+          </>
         )}
       </Stack>
     </Container>

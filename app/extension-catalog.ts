@@ -14,19 +14,21 @@ const official = [
   {
     id: "dm5",
     title: "动漫屋 / 漫画人",
-    description: "支持浏览、搜索与下载。具体可用章节取决于站点。",
+    description: "支持浏览、搜索与下载公开章节；站点地址由扩展维护。",
     category: "在线漫画",
   },
   {
     id: "komga",
     title: "Komga",
-    description: "搜索和下载自托管 Komga 书库中的漫画。",
+    description:
+      "浏览、搜索和下载自托管 Komga 书库，需要服务器地址和 API Key。",
     category: "自托管书库",
   },
   {
     id: "kavita",
     title: "Kavita",
-    description: "搜索和下载自托管 Kavita 书库中的漫画。",
+    description:
+      "浏览、搜索和下载自托管 Kavita 书库，需要服务器地址和 Auth Key。",
     category: "自托管书库",
   },
 ];

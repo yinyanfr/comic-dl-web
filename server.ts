@@ -24,11 +24,15 @@ function allowProxyOrigin(build: ServerBuild): ServerBuild {
 async function startVite() {
   const signals = ["SIGTERM", "SIGINT"] as const;
   const existing = signals.map((signal) => new Set(process.listeners(signal)));
-  const { createServer } = await import("vite");
+  const { createServer, isRunnableDevEnvironment } = await import("vite");
   const vite = await createServer({
     server: { middlewareMode: true, hmr: { server } },
     appType: "custom",
   });
+  const ssr = vite.environments.ssr;
+  if (!isRunnableDevEnvironment(ssr)) {
+    throw new Error("The Vite SSR environment must support a module runner.");
+  }
   // React Router creates internal Vite servers whose signal handlers can exit
   // before the watcher finishes. Closing the outer server also closes them.
   for (const [index, signal] of signals.entries()) {
@@ -36,14 +40,14 @@ async function startVite() {
       if (!existing[index].has(listener)) process.off(signal, listener);
     }
   }
-  return vite;
+  return { vite, ssr };
 }
 let build: ServerBuild | (() => Promise<ServerBuild>);
 if (vite) {
-  app.use(vite.middlewares);
+  app.use(vite.vite.middlewares);
   build = async () =>
     allowProxyOrigin(
-      (await vite.ssrLoadModule(
+      (await vite.ssr.runner.import(
         "virtual:react-router/server-build",
       )) as ServerBuild,
     );
@@ -57,13 +61,19 @@ if (vite) {
   app.use(express.static("build/client"));
 }
 
-const { createComicRuntime } = await import("./app/comic-runtime.server.ts");
+const { comicsContext, createComicRuntime } =
+  await import("./app/comic-runtime.server.ts");
+const { RouterContextProvider } = await import("react-router");
 const comics = await createComicRuntime();
 app.all(
   "*",
   createRequestHandler({
     build,
-    getLoadContext: () => ({ comics }),
+    getLoadContext: () => {
+      const context = new RouterContextProvider();
+      context.set(comicsContext, comics);
+      return context;
+    },
     mode: process.env.NODE_ENV,
   }),
 );
@@ -82,7 +92,7 @@ async function shutdown() {
   server.close();
   server.closeAllConnections();
   await comics.stop();
-  await vite?.close();
+  await vite?.vite.close();
 }
 
 process.once("SIGTERM", () => void shutdown());

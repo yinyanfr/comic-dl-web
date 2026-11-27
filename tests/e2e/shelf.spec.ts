@@ -45,7 +45,9 @@ async function prepareShelf(directory: string) {
   };
   const services = testServices(directory);
 
-  async function start(options: { fixture?: boolean; marker?: boolean } = {}) {
+  async function start(
+    options: { fixture?: boolean; marker?: boolean; management?: boolean } = {},
+  ) {
     return services.start({
       COMIC_DL_WEB_FIXTURE: options.fixture === false ? "0" : "1",
       COMIC_DL_WEB_FIXTURE_DIR: fixture,
@@ -53,6 +55,7 @@ async function prepareShelf(directory: string) {
       COMIC_DL_WEB_EXTENSIONS:
         options.fixture === false ? "@fixture/missing-source" : "",
       COMIC_DL_WEB_OUTPUT_MARKER: options.marker ? ".nas-ready" : undefined,
+      COMIC_DL_WEB_ENABLE_EXTENSION_MANAGEMENT: options.management ? "1" : "0",
     });
   }
 
@@ -82,7 +85,7 @@ test("收藏、基线、后台追更、重启恢复、补历史及重试", async
   context,
 }) => {
   const service = await shelf.start();
-  await page.goto(service.url);
+  await page.goto(`${service.url}/downloads`);
   await page.getByLabel("漫画源").selectOption("fixture");
   await page.getByLabel("作品或章节链接 / 短 ID").fill("demo");
   await page.getByRole("button", { name: "查看章节" }).click();
@@ -91,12 +94,14 @@ test("收藏、基线、后台追更、重启恢复、补历史及重试", async
   await page.getByRole("link", { name: "书架" }).click();
 
   const work = page.getByRole("article", { name: "demo · fixture" });
-  await expect(work.getByText("未订阅", { exact: true })).toBeVisible();
+  await expect(work.getByText("未开启自动追更", { exact: true })).toBeVisible();
   await expect(work.getByText("尚未检查", { exact: false })).toBeVisible();
+  await work.getByText("编辑作品输入").click();
   await expect(work.getByLabel("作品输入")).toHaveValue("demo");
   const html = await page.request.get(`${service.url}/shelf`);
   expect(await html.text()).not.toContain(shelf.fixture);
 
+  await page.getByText("通过链接添加作品").click();
   await page.getByLabel("漫画源").selectOption("fixture");
   await page.getByLabel("作品链接 / 短 ID").fill("demo");
   await page.getByRole("button", { name: "加入书架" }).click();
@@ -112,7 +117,7 @@ test("收藏、基线、后台追更、重启恢复、补历史及重试", async
   await work.getByRole("button", { name: "保存作品输入" }).click();
   await expect(work.getByText("已保存作品输入。")).toBeVisible();
 
-  await work.getByRole("button", { name: "订阅", exact: true }).click();
+  await work.getByRole("button", { name: "开启自动追更", exact: true }).click();
   await expect(work.getByText("检查结果：成功")).toBeVisible();
   await expect(work.getByText("待处理 0 章 · 已完成 0 章")).toBeVisible();
   expect(await shelf.archives()).toEqual([]);
@@ -148,23 +153,29 @@ test("收藏、基线、后台追更、重启恢复、补历史及重试", async
   expect((await stat(join(shelf.output, archive))).mtimeMs).toBe(firstMtime);
   await reopened.goto(`${restarted.url}/shelf`);
   await expect(reopened.getByText("追更服务运行中")).toBeVisible();
-  await expect(entry.getByText("已订阅", { exact: true })).toBeVisible();
+  await expect(
+    entry.getByText("自动检查并下载", { exact: true }),
+  ).toBeVisible();
   await expect(entry.getByText("待处理 0 章 · 已完成 2 章")).toBeVisible();
 
-  await entry.getByRole("button", { name: "暂停订阅" }).click();
-  await expect(entry.getByText("未订阅", { exact: true })).toBeVisible();
+  await entry.getByRole("button", { name: "暂停自动追更" }).click();
   await expect(
-    reopened.getByRole("button", { name: "检查全部订阅" }),
+    entry.getByText("未开启自动追更", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    reopened.getByRole("button", { name: "检查已开启追更的作品" }),
   ).toBeDisabled();
   await shelf.append("while-paused");
   expect(await shelf.archives()).toHaveLength(2);
-  await entry.getByRole("button", { name: "订阅", exact: true }).click();
+  await entry
+    .getByRole("button", { name: "开启自动追更", exact: true })
+    .click();
   await expect(entry.getByText("待处理 0 章 · 已完成 3 章")).toBeVisible();
 
   await entry.getByRole("button", { name: "补下载历史" }).click();
   await expect(entry.getByText("待处理 0 章 · 已完成 6 章")).toBeVisible();
   expect(await shelf.archives()).toHaveLength(6);
-  await reopened.getByRole("button", { name: "检查全部订阅" }).click();
+  await reopened.getByRole("button", { name: "检查已开启追更的作品" }).click();
   await expect(
     reopened.getByText("已检查 1 项，0 章入队，0 项检查失败。"),
   ).toBeVisible();
@@ -182,6 +193,69 @@ test("收藏、基线、后台追更、重启恢复、补历史及重试", async
   expect(await shelf.archives()).toHaveLength(7);
 });
 
+test("下载子目录消失时保留队列，目录恢复后继续追更", async ({
+  shelf,
+  page,
+}) => {
+  test.setTimeout(85_000);
+  const folder = join(shelf.output, "Manga");
+  const moved = join(shelf.output, "Manga-moved");
+  await mkdir(folder);
+  const service = await shelf.start({ management: true });
+  await page.goto(`${service.url}/settings`);
+  await page.getByLabel("下载子目录").fill("Manga");
+  await page.getByRole("button", { name: "保存设置" }).click();
+  await expect(page.getByText("服务设置已生效。")).toBeVisible();
+  await page.getByRole("link", { name: "书架", exact: true }).click();
+  await page.getByText("通过链接添加作品").click();
+  await page.getByLabel("漫画源").selectOption("fixture");
+  await page.getByLabel("作品链接 / 短 ID").fill("demo");
+  await page.getByRole("button", { name: "加入书架" }).click();
+  const work = page.getByRole("article", { name: "demo · fixture" });
+  await work.getByRole("button", { name: "开启自动追更" }).click();
+  await expect(work.getByText("检查结果：成功")).toBeVisible();
+
+  await rename(folder, moved);
+  await shelf.append("while-folder-missing");
+  const warning = page.getByText("漫画输出目录或挂载标记不可用", {
+    exact: false,
+  });
+  await expect(warning).toBeVisible();
+  await expect(work.getByText("待处理 1 章 · 已完成 0 章")).toBeVisible();
+  await expect(stat(folder)).rejects.toMatchObject({ code: "ENOENT" });
+
+  // A replacement directory has no watcher marker until the service restores it.
+  await mkdir(folder);
+  await expect(warning).toHaveCount(0);
+  await expect(work.getByText("待处理 0 章 · 已完成 1 章")).toBeVisible({
+    timeout: 70_000,
+  });
+  expect(
+    (await readdir(folder)).filter((name) => name.endsWith(".cbz")),
+  ).toHaveLength(1);
+  expect(await shelf.archives()).toEqual([]);
+});
+
+test("启用挂载标记时拒绝下载子目录，继续使用下载根目录", async ({
+  shelf,
+  page,
+}) => {
+  await mkdir(join(shelf.output, "Manga"));
+  await writeFile(shelf.marker, "");
+  const service = await shelf.start({ marker: true, management: true });
+  await page.goto(`${service.url}/settings`);
+  await page.getByLabel("下载子目录").fill("Manga");
+  await page.getByRole("button", { name: "保存设置" }).click();
+  await expect(page.getByRole("alert")).toContainText("下载子目录必须留空");
+  await page.reload();
+  await expect(page.getByLabel("下载子目录")).toHaveValue("");
+  await page.getByRole("link", { name: "手动下载" }).click();
+  await page.getByLabel("漫画源").selectOption("fixture");
+  await page.getByLabel("作品或章节链接 / 短 ID").fill("demo");
+  await page.getByRole("button", { name: "下载章节直链" }).click();
+  await expect.poll(shelf.archives).toHaveLength(1);
+});
+
 test("可选输出标记消失时拒绝手动下载、保留追更队列，恢复后继续下载", async ({
   shelf,
   page,
@@ -194,26 +268,27 @@ test("可选输出标记消失时拒绝手动下载、保留追更队列，恢�
   await writeFile(shelf.marker, "");
   const service = await shelf.start({ marker: true });
   await page.goto(`${service.url}/shelf`);
+  await page.getByText("通过链接添加作品").click();
   await page.getByLabel("漫画源").selectOption("fixture");
   await page.getByLabel("作品链接 / 短 ID").fill("demo");
   await page.getByRole("button", { name: "加入书架" }).click();
   const work = page.getByRole("article", { name: "demo · fixture" });
-  await work.getByRole("button", { name: "订阅", exact: true }).click();
+  await work.getByRole("button", { name: "开启自动追更", exact: true }).click();
   await expect(work.getByText("检查结果：成功")).toBeVisible();
   await unlink(shelf.marker);
   await shelf.append("on-nas");
   await expect(
-    page.getByText("漫画输出目录的挂载标记不可用", { exact: false }),
+    page.getByText("漫画输出目录或挂载标记不可用", { exact: false }),
   ).toBeVisible();
   await expect(work.getByText("待处理 1 章 · 已完成 0 章")).toBeVisible();
-  const manual = await page.request.post(`${service.url}/?index`, {
+  const manual = await page.request.post(`${service.url}/downloads`, {
     form: { intent: "chapter", source: "fixture", input: "demo" },
   });
   expect(manual.status()).toBe(503);
   expect(await shelf.archives()).toEqual([]);
   await writeFile(shelf.marker, "");
   await expect(
-    page.getByText("漫画输出目录的挂载标记不可用", { exact: false }),
+    page.getByText("漫画输出目录或挂载标记不可用", { exact: false }),
   ).toHaveCount(0);
   // Core 3.2.0 defers queued downloads for one minute when the marker is missing.
   await expect(work.getByText("待处理 0 章 · 已完成 1 章")).toBeVisible({

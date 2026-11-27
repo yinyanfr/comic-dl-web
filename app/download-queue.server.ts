@@ -3,7 +3,12 @@ import type { ChapterResult } from "comic-dl";
 
 type TaskStatus =
   "queued" | "running" | "cancelling" | "cancelled" | "completed" | "failed";
-type PublicChapterResult = Pick<ChapterResult, "chapterId" | "status">;
+type ChapterLabel = { id: string; title: string; number: number };
+type TaskWork = { id: string; title: string };
+type PublicChapterResult = Pick<ChapterResult, "chapterId" | "status"> & {
+  title?: string;
+  number?: number;
+};
 
 export interface DownloadTask {
   id: string;
@@ -11,6 +16,9 @@ export interface DownloadTask {
   kind: "series" | "chapter";
   status: TaskStatus;
   results: PublicChapterResult[];
+  work?: TaskWork;
+  chapterCount?: number;
+  remaining?: ChapterLabel[];
   failure?: "invalid-selection";
 }
 
@@ -19,6 +27,7 @@ export type DownloadTaskSnapshot = DownloadTask & { resultCount: number };
 type RunDownload = (
   signal: AbortSignal,
   record: (result: ChapterResult) => void,
+  describe: (work: TaskWork, chapters: ChapterLabel[]) => void,
 ) => Promise<void | "invalid-selection">;
 
 export class DownloadQueue {
@@ -53,6 +62,18 @@ export class DownloadQueue {
     return () => {
       this.#listeners.delete(listener);
     };
+  }
+
+  clearFinished() {
+    for (const [id, task] of this.#tasks) {
+      if (
+        task.status === "completed" ||
+        task.status === "failed" ||
+        task.status === "cancelled"
+      )
+        this.#tasks.delete(id);
+    }
+    this.#notify();
   }
 
   submit(source: string, kind: DownloadTask["kind"], run: RunDownload) {
@@ -122,10 +143,33 @@ export class DownloadQueue {
       task.status = "running";
       this.#notify();
       try {
+        let labels = new Map<string, ChapterLabel>();
         const failure = await run(
           controller.signal,
           ({ chapterId, status }) => {
-            task.results.push({ chapterId, status });
+            const label = labels.get(chapterId);
+            task.results.push({
+              chapterId,
+              status,
+              title: label?.title,
+              number: label?.number,
+            });
+            labels.delete(chapterId);
+            if (task.remaining?.some(({ id }) => id === chapterId)) {
+              const next: ChapterLabel[] = [];
+              for (const chapter of labels.values()) {
+                next.push(chapter);
+                if (next.length === 10) break;
+              }
+              task.remaining = next;
+            }
+            this.#notify();
+          },
+          (work, chapters) => {
+            task.work = work;
+            task.chapterCount = chapters.length;
+            labels = new Map(chapters.map((chapter) => [chapter.id, chapter]));
+            task.remaining = chapters.slice(0, 10);
             this.#notify();
           },
         );
@@ -140,6 +184,7 @@ export class DownloadQueue {
       } catch {
         task.status = controller.signal.aborted ? "cancelled" : "failed";
       } finally {
+        delete task.remaining;
         this.#active = undefined;
         this.#notify();
       }

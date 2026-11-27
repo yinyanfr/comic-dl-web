@@ -6,6 +6,7 @@ import {
   Group,
   NativeSelect,
   Paper,
+  SimpleGrid,
   Stack,
   Text,
   TextInput,
@@ -13,6 +14,7 @@ import {
 } from "@mantine/core";
 import { useEffect, useRef } from "react";
 import { Link, useFetcher, useRevalidator } from "react-router";
+import { comicsContext } from "../comic-runtime.server";
 import { handleShelfAction, readShelf, shelfPage } from "../shelf.server";
 import { readSources } from "../downloader.server";
 import { useTaskUpdates } from "../use-task-updates";
@@ -23,22 +25,23 @@ export function meta() {
   return [{ title: "书架 · comic-dl-web" }];
 }
 
-export async function loader({ context, request }: Route.LoaderArgs) {
-  const requestedPage = shelfPage(request);
+export async function loader({ context, request, url }: Route.LoaderArgs) {
+  const comics = context.get(comicsContext);
+  const requestedPage = shelfPage(url);
   const [shelf, sources] = await Promise.all([
     readShelf(requestedPage).catch(() => null),
-    readSources(context.comics.withDownloader, request.signal),
+    readSources(comics.withDownloader, request.signal),
   ]);
   return {
     requestedPage,
     shelf,
     sources,
-    watcher: context.comics.shelfWatcher.snapshot(),
+    watcher: comics.shelfWatcher.snapshot(),
   };
 }
 
 export function action({ request, context }: Route.ActionArgs) {
-  return handleShelfAction(request, context.comics);
+  return handleShelfAction(request, context.get(comicsContext));
 }
 
 const checkResults = {
@@ -111,11 +114,17 @@ function ShelfEntry({
       <Stack gap="sm">
         <Group>
           <Title order={2} size="h4">
-            {entry.title}
+            {entry.input ? (
+              <Link to={`/work?entry=${entry.id}`} className={styles.workLink}>
+                {entry.title}
+              </Link>
+            ) : (
+              entry.title
+            )}
           </Title>
           <Badge variant="light">{entry.sourceId}</Badge>
           <Badge variant="light" color={entry.following ? "teal" : "gray"}>
-            {entry.following ? "已订阅" : "未订阅"}
+            {entry.following ? "自动检查并下载" : "未开启自动追更"}
           </Badge>
           {!sourceAvailable && (
             <Badge color="yellow" variant="light">
@@ -142,31 +151,34 @@ function ShelfEntry({
           待处理 {status?.pending ?? 0} 章 · 已完成 {status?.complete ?? 0} 章
         </Text>
 
-        <edit.Form method="post">
-          <input type="hidden" name="intent" value="edit" />
-          <input type="hidden" name="entryId" value={entry.id} />
-          <Group align="end">
-            <TextInput
-              key={entry.input}
-              name="input"
-              label="作品输入"
-              defaultValue={entry.input}
-              maxLength={4096}
-              required
-              disabled={!sourceAvailable}
-            />
-            <Button
-              type="submit"
-              variant="light"
-              disabled={disabled || !sourceAvailable}
-            >
-              保存作品输入
-            </Button>
-          </Group>
-        </edit.Form>
-        <ActionFeedback fetcher={edit} />
+        <details>
+          <summary>编辑作品输入</summary>
+          <edit.Form method="post" action="/shelf">
+            <input type="hidden" name="intent" value="edit" />
+            <input type="hidden" name="entryId" value={entry.id} />
+            <Group align="end">
+              <TextInput
+                key={entry.input}
+                name="input"
+                label="作品输入"
+                defaultValue={entry.input}
+                maxLength={4096}
+                required
+                disabled={!sourceAvailable}
+              />
+              <Button
+                type="submit"
+                variant="light"
+                disabled={disabled || !sourceAvailable}
+              >
+                保存作品输入
+              </Button>
+            </Group>
+          </edit.Form>
+          <ActionFeedback fetcher={edit} />
+        </details>
 
-        <command.Form method="post">
+        <command.Form method="post" action="/shelf">
           <input type="hidden" name="entryId" value={entry.id} />
           <Group>
             <Button
@@ -175,7 +187,7 @@ function ShelfEntry({
               value={entry.following ? "pause" : "follow"}
               disabled={disabled}
             >
-              {entry.following ? "暂停订阅" : "订阅"}
+              {entry.following ? "暂停自动追更" : "开启自动追更"}
             </Button>
             {entry.following && (
               <>
@@ -218,7 +230,7 @@ function ShelfEntry({
               需处理章节
             </Title>
             {attention.map((chapter) => (
-              <command.Form key={chapter.id} method="post">
+              <command.Form key={chapter.id} method="post" action="/shelf">
                 <input type="hidden" name="intent" value="retry" />
                 <input type="hidden" name="entryId" value={entry.id} />
                 <input type="hidden" name="chapterId" value={chapter.id} />
@@ -278,8 +290,8 @@ function ShelfPage({
       <Stack gap="lg">
         <Group component="header" justify="space-between">
           <Title order={1}>书架</Title>
-          <Button component={Link} to="/" variant="subtle">
-            手动下载
+          <Button component={Link} to="/catalog" variant="light">
+            发现漫画
           </Button>
         </Group>
         <Group>
@@ -291,27 +303,87 @@ function ShelfPage({
           </Badge>
           {!watcher.outputReady && (
             <Text size="sm" c="orange">
-              漫画输出目录的挂载标记不可用，追更下载会等待恢复。
+              漫画输出目录或挂载标记不可用，追更下载会等待恢复。
             </Text>
           )}
         </Group>
-        <Paper
-          component="section"
-          aria-labelledby="collect-heading"
-          withBorder
-          p="lg"
-        >
-          <Stack gap="sm">
-            <Title id="collect-heading" order={2} size="h4">
-              收藏作品
-            </Title>
-            <Text size="sm" c="dimmed">
-              收藏后可单独开启订阅。首次成功检查默认只记录已有章节。
-            </Text>
+        {current == null ? (
+          <Alert color="red" role="alert">
+            无法打开书架，请检查服务端存储配置。
+          </Alert>
+        ) : (
+          <>
+            <check.Form method="post" action="/shelf">
+              <Button
+                type="submit"
+                name="intent"
+                value="check-all"
+                variant="light"
+                disabled={check.state !== "idle" || !current.hasSubscriptions}
+              >
+                检查已开启追更的作品
+              </Button>
+            </check.Form>
+            {current.entries.length > 0 && (
+              <Text size="sm" c="dimmed">
+                当前版本仅支持检查已开启追更的作品，发现新章节后会自动加入下载队列。
+              </Text>
+            )}
+            <ActionFeedback fetcher={check} />
+            {current.entries.length === 0 && (
+              <Paper withBorder p="xl" ta="center">
+                <Text fw={600}>书架暂无作品。</Text>
+                <Text c="dimmed" size="sm" mt="xs">
+                  打开一个漫画源，找到喜欢的漫画后加入书架。
+                </Text>
+                <Button component={Link} to="/catalog" mt="md">
+                  浏览漫画源
+                </Button>
+              </Paper>
+            )}
+            <SimpleGrid cols={{ base: 1, md: 2 }}>
+              {current.entries.map((entry) => (
+                <ShelfEntry
+                  key={entry.id}
+                  entry={entry}
+                  sourceAvailable={sources.ids.includes(entry.sourceId)}
+                />
+              ))}
+            </SimpleGrid>
+            {current.pages > 1 && (
+              <Group aria-label="书架分页">
+                {current.page > 1 && (
+                  <Button
+                    component={Link}
+                    to={`/?page=${current.page - 1}`}
+                    variant="light"
+                  >
+                    上一页
+                  </Button>
+                )}
+                <Text size="sm">
+                  第 {current.page} / {current.pages} 页
+                </Text>
+                {current.page < current.pages && (
+                  <Button
+                    component={Link}
+                    to={`/?page=${current.page + 1}`}
+                    variant="light"
+                  >
+                    下一页
+                  </Button>
+                )}
+              </Group>
+            )}
+          </>
+        )}
+        <Paper component="details" withBorder p="md">
+          <summary>通过链接添加作品</summary>
+          <Stack gap="sm" mt="sm">
             {sources.unavailable && (
               <Alert color="yellow">部分或全部漫画源无法加载。</Alert>
             )}
-            <add.Form method="post">
+            <add.Form method="post" action="/shelf">
               <input type="hidden" name="intent" value="add" />
               <Group align="end">
                 <NativeSelect
@@ -346,61 +418,6 @@ function ShelfPage({
             <ActionFeedback fetcher={add} />
           </Stack>
         </Paper>
-        {current == null ? (
-          <Alert color="red" role="alert">
-            无法打开书架，请检查服务端存储配置。
-          </Alert>
-        ) : (
-          <>
-            <check.Form method="post">
-              <Button
-                type="submit"
-                name="intent"
-                value="check-all"
-                variant="light"
-                disabled={check.state !== "idle" || !current.hasSubscriptions}
-              >
-                检查全部订阅
-              </Button>
-            </check.Form>
-            <ActionFeedback fetcher={check} />
-            {current.entries.length === 0 && (
-              <Text c="dimmed">书架暂无作品。</Text>
-            )}
-            {current.entries.map((entry) => (
-              <ShelfEntry
-                key={entry.id}
-                entry={entry}
-                sourceAvailable={sources.ids.includes(entry.sourceId)}
-              />
-            ))}
-            {current.pages > 1 && (
-              <Group aria-label="书架分页">
-                {current.page > 1 && (
-                  <Button
-                    component={Link}
-                    to={`/shelf?page=${current.page - 1}`}
-                    variant="light"
-                  >
-                    上一页
-                  </Button>
-                )}
-                <Text size="sm">
-                  第 {current.page} / {current.pages} 页
-                </Text>
-                {current.page < current.pages && (
-                  <Button
-                    component={Link}
-                    to={`/shelf?page=${current.page + 1}`}
-                    variant="light"
-                  >
-                    下一页
-                  </Button>
-                )}
-              </Group>
-            )}
-          </>
-        )}
       </Stack>
     </Container>
   );

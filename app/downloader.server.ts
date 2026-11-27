@@ -1,4 +1,9 @@
-import { lstat } from "node:fs/promises";
+import copymanga from "@comic-dl/copymanga";
+import dm5 from "@comic-dl/dm5";
+import kavita from "@comic-dl/kavita";
+import komga from "@comic-dl/komga";
+import zerobyw from "@comic-dl/zerobyw";
+import { lstat, realpath, stat } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import {
   createDownloader,
@@ -8,9 +13,43 @@ import {
   type SettingsBySource,
 } from "comic-dl";
 import { z } from "zod";
+import { sourceId } from "./source-input.server.ts";
+import {
+  withSourceCredential,
+  type SourceCredentials,
+} from "./source-credentials.server.ts";
+
+const bundled = [copymanga, zerobyw, dm5, komga, kavita];
+const bundledSources = new WeakMap<Downloader, Set<string>>();
+export function usesBundledSource(downloader: Downloader, id: string) {
+  return bundledSources.get(downloader)?.has(id) ?? false;
+}
 
 const fixtureFlag = z.enum(["0", "1"]).default("0");
 const path = z.string().trim().min(1);
+const watchInterval = z.coerce.number().int().min(1).max(31_536_000);
+export const librarySettings = z.object({
+  folder: z
+    .string()
+    .trim()
+    .max(512)
+    .refine(
+      (value) =>
+        !value ||
+        value
+          .split("/")
+          .every(
+            (segment) =>
+              Boolean(segment) &&
+              segment !== "." &&
+              segment !== ".." &&
+              !/[:\\\p{Cc}]/u.test(segment),
+          ),
+    ),
+  intervalSeconds: watchInterval,
+  defaultSource: sourceId.optional(),
+});
+export type LibrarySettings = z.infer<typeof librarySettings>;
 export const packageName = z
   .string()
   .max(214)
@@ -18,12 +57,7 @@ export const packageName = z
 const environmentSchema = z.object({
   COMIC_DL_WEB_OUTPUT: path.default("./downloads"),
   COMIC_DL_WEB_SHELF: path.default("./data/shelf.sqlite"),
-  COMIC_DL_WEB_WATCH_INTERVAL: z.coerce
-    .number()
-    .int()
-    .min(1)
-    .max(31_536_000)
-    .default(3600),
+  COMIC_DL_WEB_WATCH_INTERVAL: watchInterval.default(3600),
   COMIC_DL_WEB_OUTPUT_MARKER: path
     .refine((name) => !/[/\\\0]/.test(name) && name !== "." && name !== "..")
     .optional(),
@@ -91,6 +125,35 @@ export const watchOptions = {
   intervalSeconds: config.COMIC_DL_WEB_WATCH_INTERVAL,
   outputMarker: config.COMIC_DL_WEB_OUTPUT_MARKER,
 };
+export const defaultLibrarySettings = {
+  folder: "",
+  intervalSeconds: watchOptions.intervalSeconds,
+  defaultSource: config.COMIC_DL_WEB_DEFAULT_SOURCE,
+};
+
+export function isAdminRequest(request: Request) {
+  return (
+    request.method === "POST" &&
+    !request.headers.get("Sec-Fetch-Site")?.endsWith("-site") &&
+    request.headers.get("Origin") ===
+      (adminOrigin ?? new URL(request.url).origin)
+  );
+}
+
+export async function outputDirectory(folder: string) {
+  if (!folder) return watchOptions.directory;
+  if (watchOptions.outputMarker)
+    throw new Error("Output subfolders are unavailable with a mount marker");
+  const requested = join(watchOptions.directory, folder);
+  const root = await realpath(watchOptions.directory);
+  const directory = await realpath(requested);
+  if (
+    directory !== join(root, folder) ||
+    !(await stat(directory)).isDirectory()
+  )
+    throw new Error("Invalid output subfolder");
+  return directory;
+}
 export const fixtureDirectory = fixtureEnabled(process.env)
   ? resolve(
       path.parse(
@@ -111,26 +174,48 @@ export function withConfiguredDownloader<T>(
   run: (downloader: Downloader) => Promise<T>,
   signal?: AbortSignal,
   onLoadError: ReportLoadError = () => {},
+  library: LibrarySettings = defaultLibrarySettings,
+  credentials: SourceCredentials = {},
 ) {
   return withManagedDownloader(
     {
       extensions: deploymentPackages,
       extensionDirectory,
       sourceSettings,
-      source: config.COMIC_DL_WEB_DEFAULT_SOURCE,
-      output: resolve(config.COMIC_DL_WEB_OUTPUT),
+      source: library.defaultSource,
       signal,
       onLoadError,
     },
     async (downloader) => {
+      const loaded = downloader.sources();
+      const registered = new Set<string>();
+      bundledSources.set(downloader, registered);
+      for (const extension of bundled) {
+        if (loaded.includes(extension.id)) continue;
+        try {
+          downloader.use({
+            ...extension,
+            create: (api, settings) =>
+              withSourceCredential(extension.id, credentials, () =>
+                extension.create(api, settings),
+              ),
+          });
+          registered.add(extension.id);
+        } catch (cause) {
+          // The core also rejects registration when it has excluded an ambiguous ID.
+          onLoadError(cause);
+        }
+      }
       if (fixtureDirectory) downloader.use(fixtureExtension);
       return run(downloader);
     },
   );
 }
 
-export async function isOutputReady() {
-  const { directory, outputMarker } = watchOptions;
+export async function isOutputReady(
+  directory: string,
+  outputMarker = watchOptions.outputMarker,
+) {
   if (!outputMarker) return true;
   const marker = await lstat(join(directory, outputMarker)).catch(() => null);
   return marker?.isFile() ?? false;

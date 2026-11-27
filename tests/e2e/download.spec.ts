@@ -50,6 +50,9 @@ test("关闭页面后生成 CBZ，刷新可见结果，重跑会跳过已有章�
     process.platform === "win32",
     "离线流程使用 POSIX 命名管道控制测试页完成时机",
   );
+  await context.addInitScript(() => {
+    Reflect.deleteProperty(Map, "groupBy");
+  });
   const demo = "tests/fixtures/comics";
   await cp(demo, fixtureDirectory, { recursive: true });
   await mkdir(archiveDirectory, { recursive: true });
@@ -72,8 +75,8 @@ test("关闭页面后生成 CBZ，刷新可见结果，重跑会跳过已有章�
   await unlink(gate);
   await promisify(execFile)("mkfifo", [gate]);
 
-  await page.goto("/");
-  const badInput = await page.request.post("/?index", {
+  await page.goto("/downloads");
+  const badInput = await page.request.post("/downloads", {
     form: { intent: "list", source: "fixture", input: fixtureDirectory },
   });
   expect(badInput.status()).toBe(400);
@@ -82,6 +85,11 @@ test("关闭页面后生成 CBZ，刷新可见结果，重跑会跳过已有章�
   await page.getByRole("checkbox", { name: "1. 开篇" }).check();
   await page.getByRole("button", { name: "提交下载" }).click();
   await expect(latestTask(page).getByText("下载中")).toBeVisible();
+  await expect(
+    latestTask(page)
+      .getByRole("region", { name: "待处理章节" })
+      .getByText("1-开篇"),
+  ).toBeVisible();
   await expect.poll(archives).toHaveLength(0);
 
   await page.getByRole("button", { name: "下载章节直链" }).click();
@@ -123,14 +131,12 @@ test("关闭页面后生成 CBZ，刷新可见结果，重跑会跳过已有章�
   await writeFile(gate, blue);
 
   const reopened = await context.newPage();
-  await reopened.goto("/");
-  const completed = reopened
-    .getByRole("article")
-    .filter({ hasText: "opening" });
+  await reopened.goto("/downloads");
+  const completed = reopened.getByRole("article").filter({ hasText: "1-开篇" });
   await expect(completed.getByText("已下载", { exact: true })).toBeVisible();
 
   const observer = await context.newPage();
-  await observer.goto("/");
+  await observer.goto("/downloads");
   await expect(latestTask(observer).getByText("已取消")).toBeVisible();
 
   await listChapters(reopened);
@@ -147,16 +153,16 @@ test("关闭页面后生成 CBZ，刷新可见结果，重跑会跳过已有章�
   const result = latestTask(reopened);
   await expect(result.getByText("已结束")).toBeVisible();
   await expect(
-    result.getByRole("listitem").filter({ hasText: "opening" }),
+    result.getByRole("listitem").filter({ hasText: "1-开篇" }),
   ).toContainText("跳过");
   await expect(
-    result.getByRole("listitem").filter({ hasText: "middle" }),
+    result.getByRole("listitem").filter({ hasText: "2-中篇" }),
   ).toContainText("已下载");
   await expect(
-    result.getByRole("listitem").filter({ hasText: "closing" }),
+    result.getByRole("listitem").filter({ hasText: "3-终篇" }),
   ).toContainText("已下载");
   await expect(
-    result.getByRole("listitem").filter({ hasText: "broken" }),
+    result.getByRole("listitem").filter({ hasText: "4-缺页章节" }),
   ).toContainText("章节失败");
   await expect(latestTask(observer).getByText("章节失败")).toBeVisible();
   expect(await archives()).toHaveLength(3);
@@ -180,10 +186,10 @@ test("关闭页面后生成 CBZ，刷新可见结果，重跑会跳过已有章�
   await reopened.getByRole("button", { name: "提交下载" }).click();
   await expect(latestTask(reopened).getByRole("listitem")).toHaveCount(2);
   await expect(
-    latestTask(reopened).getByRole("listitem").filter({ hasText: "middle" }),
+    latestTask(reopened).getByRole("listitem").filter({ hasText: "2-中篇" }),
   ).toContainText("跳过");
   await expect(
-    latestTask(reopened).getByRole("listitem").filter({ hasText: "closing" }),
+    latestTask(reopened).getByRole("listitem").filter({ hasText: "3-终篇" }),
   ).toContainText("跳过");
   expect(await archives()).toHaveLength(3);
 
@@ -202,4 +208,31 @@ test("关闭页面后生成 CBZ，刷新可见结果，重跑会跳过已有章�
   await expect(reopened.getByRole("button", { name: "加入书架" })).toHaveCount(
     0,
   );
+
+  await listChapters(reopened);
+  await reopened.getByRole("button", { name: "加入书架" }).click();
+  await expect(reopened.getByText("作品已在书架中。")).toBeVisible();
+  await reopened.getByRole("link", { name: "书架", exact: true }).click();
+  await reopened.getByRole("link", { name: "demo", exact: true }).click();
+  await expect(reopened.getByText("已在书架中")).toBeVisible();
+  await reopened.getByRole("button", { name: "下载全部未下载章节" }).click();
+  await expect(
+    reopened.getByText("已提交任务：", { exact: false }),
+  ).toBeVisible();
+  await reopened.getByRole("button", { name: /^下载(?: \(\d+\))?$/ }).click();
+  const drawer = reopened.getByRole("dialog", { name: "下载管理" });
+  await expect(
+    drawer.getByRole("heading", { name: "demo", exact: true }),
+  ).toBeVisible();
+  const backfill = latestTask(reopened);
+  await expect(backfill.getByText("已结束")).toBeVisible();
+  await expect(
+    backfill.getByRole("listitem").filter({ hasText: "5-开篇" }),
+  ).toContainText("跳过");
+  await expect(
+    backfill.getByRole("listitem").filter({ hasText: "1-有数字范围形状的 ID" }),
+  ).toContainText("已下载");
+  expect(await archives()).toHaveLength(4);
+  await drawer.getByRole("button", { name: "清除已结束记录" }).click();
+  await expect(drawer.getByText("暂无下载任务。")).toBeVisible();
 });

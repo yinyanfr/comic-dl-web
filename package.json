@@ -26,7 +26,17 @@
     ],
     "*.{css,json,md,yaml,yml}": "prettier --write"
   },
+  "overrides": {
+    "cheerio": {
+      "encoding-sniffer": "1.0.2"
+    }
+  },
   "dependencies": {
+    "@comic-dl/copymanga": "0.2.0",
+    "@comic-dl/dm5": "0.1.1",
+    "@comic-dl/kavita": "0.2.0",
+    "@comic-dl/komga": "0.2.0",
+    "@comic-dl/zerobyw": "0.2.0",
     "@mantine/core": "^9.8.2",
     "@mantine/hooks": "^9.8.2",
     "@react-router/express": "^7.18.7",
@@ -58,5 +68,10 @@
     "typescript-eslint": "^8.74.0",
     "vite": "^7.3.8",
     "vitest": "^5.1.2"
+  },
+  "allowScripts": {
+    "better-sqlite3@13.2.0": true,
+    "esbuild@0.28.2": true,
+    "fsevents@2.3.3": true
   }
 }

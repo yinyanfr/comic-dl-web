@@ -7,17 +7,28 @@ import {
   type ExtensionAction,
 } from "comic-dl";
 import type { OptionValues } from "comic-dl/extension";
+import { createContext } from "react-router";
 import { z } from "zod";
 import { DownloadQueue } from "./download-queue.server.ts";
 import {
   extensionDirectory,
+  defaultLibrarySettings,
+  librarySettings,
+  outputDirectory,
   packageName,
   sourceStateFile,
+  usesBundledSource,
   withConfiguredDownloader,
   type ReportLoadError,
+  type LibrarySettings,
   type WithDownloader,
 } from "./downloader.server.ts";
 import { createShelfWatcher } from "./shelf-watcher.server.ts";
+import {
+  normalizeCredentialTarget,
+  sourceCredentials,
+  type SourceCredentials,
+} from "./source-credentials.server.ts";
 
 const stateSchema = z.object({
   settings: z.record(
@@ -25,6 +36,8 @@ const stateSchema = z.object({
     z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])),
   ),
   installed: z.array(packageName).nullable(),
+  library: librarySettings.optional(),
+  credentials: sourceCredentials.default({}),
 });
 type SourceState = z.infer<typeof stateSchema>;
 
@@ -43,7 +56,8 @@ async function readState(): Promise<SourceState> {
       });
     },
   );
-  if (content === null) return { settings: {}, installed: null };
+  if (content === null)
+    return stateSchema.parse({ settings: {}, installed: null });
   const parsed = z
     .string()
     .transform((text): unknown => {
@@ -75,12 +89,15 @@ async function saveState(state: SourceState) {
 
 export async function createComicRuntime() {
   let state = await readState();
-  const shelfWatcher = createShelfWatcher();
+  const library = () => state.library ?? defaultLibrarySettings;
+  const directory = () => outputDirectory(library().folder);
+  const shelfWatcher = createShelfWatcher(library);
   const downloadQueue = new DownloadQueue();
   const shutdown = new AbortController();
   let transition: Promise<unknown> = Promise.resolve();
+  let managingPackages = false;
   const current: WithDownloader = (run, signal, onLoadError) =>
-    withConfiguredDownloader(state.settings, run, signal, onLoadError);
+    inspect((downloader) => run(downloader), signal, onLoadError);
   shelfWatcher.start(current);
 
   function change<T>(run: () => Promise<T>) {
@@ -115,6 +132,8 @@ export async function createComicRuntime() {
       (downloader) => run(downloader, snapshot),
       active,
       onLoadError,
+      snapshot.library,
+      snapshot.credentials,
     );
   }
   const withDownloader: WithDownloader = inspect;
@@ -123,9 +142,58 @@ export async function createComicRuntime() {
     shelfWatcher,
     downloadQueue,
     withDownloader,
+    library,
+    directory,
     inspect,
+    usesBundledSource,
+    saveLibrary(settings: LibrarySettings | undefined) {
+      return change(async () => {
+        if (settings) {
+          await outputDirectory(settings.folder);
+          if (settings.defaultSource) {
+            const sources = await withDownloader(async (downloader) =>
+              downloader.sources(),
+            );
+            if (!sources.includes(settings.defaultSource))
+              throw new Error("Unknown default source");
+          }
+        }
+        const next = { ...state, library: settings };
+        await saveState(next);
+        state = next;
+      });
+    },
+    saveCredential(
+      source: keyof SourceCredentials,
+      value: string | undefined,
+      expectedTarget: string | undefined,
+    ) {
+      return change(async () => {
+        const credentials = { ...state.credentials };
+        if (value) {
+          const target = await withDownloader(async (downloader) => {
+            if (!usesBundledSource(downloader, source)) return;
+            const settings = downloader.validateSourceSettings(source);
+            return normalizeCredentialTarget(
+              source,
+              settings[source === "zerobyw" ? "site-url" : "server-url"],
+            );
+          });
+          if (!target || target !== expectedTarget)
+            throw new Error("Credential target changed");
+          credentials[source] = { target, value };
+        } else {
+          delete credentials[source];
+        }
+        const next = { ...state, credentials };
+        await saveState(next);
+        state = next;
+      });
+    },
     lastManagedPackages: () => state.installed,
     manage(action: ExtensionAction, spec: string | undefined) {
+      if (managingPackages) return;
+      managingPackages = true;
       return change(async () => {
         const result = await manageExtensions(action, spec, {
           directory: extensionDirectory,
@@ -141,6 +209,8 @@ export async function createComicRuntime() {
           () => false,
         );
         return { changed: result.changed, saved };
+      }).finally(() => {
+        managingPackages = false;
       });
     },
     saveSettings(
@@ -159,6 +229,9 @@ export async function createComicRuntime() {
             return values;
           },
           shutdown.signal,
+          undefined,
+          library(),
+          state.credentials,
         );
         if (Object.keys(values).length) settings[source] = { ...values };
         const next = { ...state, settings };
@@ -180,8 +253,10 @@ export async function createComicRuntime() {
 
 export type ComicRuntime = Awaited<ReturnType<typeof createComicRuntime>>;
 
-declare module "react-router" {
-  interface AppLoadContext {
-    comics: ComicRuntime;
-  }
-}
+// The native HTTP server and the Vite SSR bundle load this module separately.
+const contextKey = Symbol.for("comic-dl-web.runtime-context");
+const processContext = globalThis as typeof globalThis & {
+  [contextKey]?: ReturnType<typeof createContext<ComicRuntime>>;
+};
+export const comicsContext = (processContext[contextKey] ??=
+  createContext<ComicRuntime>());
