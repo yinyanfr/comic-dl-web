@@ -6,4 +6,6 @@ export default [
   route("extensions", "routes/extensions.tsx"),
   route("catalog", "routes/catalog.tsx"),
   route("tasks/events", "routes/task-events.ts"),
+  route("tasks/status", "routes/task-status.ts"),
+  route("tasks/:id/results", "routes/task-results.ts"),
 ] satisfies RouteConfig;

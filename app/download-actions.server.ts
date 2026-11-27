@@ -1,16 +1,23 @@
+import { createHash } from "node:crypto";
+import { createDownloader } from "comic-dl";
+import { extensionApiVersion, type Series } from "comic-dl/extension";
 import { data } from "react-router";
 import { z } from "zod";
-import { downloadQueue } from "./download-queue.server";
+import type { ComicRuntime } from "./comic-runtime.server";
 import {
   isOutputReady,
   resolveDownloadInput,
-  type WithDownloader,
+  watchOptions,
 } from "./downloader.server";
 import { sourceInput } from "./source-input.server";
 
 interface DownloadActionData {
   error?: string;
-  series?: { source: string; chapters: { id: string; title: string }[] };
+  series?: {
+    source: string;
+    catalog: string;
+    chapters: { id: string; title: string }[];
+  };
   taskId?: string;
 }
 
@@ -18,6 +25,7 @@ const respond = data<DownloadActionData>;
 
 const chapterSelection = z
   .object({
+    catalog: z.string().regex(/^[a-f0-9]{64}$/),
     chapters: z.array(z.string().min(1).max(4096)).max(10_000),
     range: z.union([
       z.literal(""),
@@ -29,9 +37,41 @@ const chapterSelection = z
   })
   .refine(({ chapters, range }) => chapters.length > 0 || range.length > 0);
 
+function catalogVersion(series: Series, input: string, source: string) {
+  return createHash("sha256")
+    .update(
+      JSON.stringify([
+        source,
+        input,
+        series.id,
+        series.chapters.map(({ id }) => id),
+      ]),
+    )
+    .digest("hex");
+}
+
+function selectChapters(
+  series: Series,
+  input: string,
+  source: string,
+  selection: z.infer<typeof chapterSelection>,
+) {
+  if (catalogVersion(series, input, source) !== selection.catalog) return;
+  const ids = new Set(selection.chapters);
+  if (selection.range) {
+    const [first, last] = selection.range.split("-").map(Number);
+    if (first < 1 || first > last || last > series.chapters.length) return;
+    for (const chapter of series.chapters.slice(first - 1, last))
+      ids.add(chapter.id);
+  }
+  const chapters = series.chapters.filter(({ id }) => ids.has(id));
+  if (!chapters.length || chapters.length !== ids.size) return;
+  return { ...series, chapters };
+}
+
 export async function handleDownloadAction(
   request: Request,
-  withDownloader: WithDownloader,
+  { withDownloader, downloadQueue }: ComicRuntime,
 ) {
   if (request.headers.get("Sec-Fetch-Site")?.endsWith("-site")) {
     return respond({ error: "请从本页面发起请求。" }, { status: 403 });
@@ -63,11 +103,12 @@ export async function handleDownloadAction(
   }
   const { input, source: explicitSource } = target.data;
   const kind = intent === "chapter" ? "chapter" : "series";
-  let selections: string[] = [];
+  let selections: z.infer<typeof chapterSelection> | undefined;
   if (intent === "series") {
     const rangeInput = form.get("range");
     const selection = chapterSelection.safeParse({
       chapters: form.getAll("chapterId"),
+      catalog: form.get("catalog"),
       range:
         typeof rangeInput === "string" ? rangeInput.trim() : (rangeInput ?? ""),
     });
@@ -77,8 +118,7 @@ export async function handleDownloadAction(
         { status: 400 },
       );
     }
-    const { chapters, range } = selection.data;
-    selections = range ? [...chapters, range] : chapters;
+    selections = selection.data;
   }
 
   if (intent === "list") {
@@ -96,6 +136,7 @@ export async function handleDownloadAction(
         });
         return {
           source,
+          catalog: catalogVersion(result, input, source),
           chapters: result.chapters.map(({ id, title }) => ({ id, title })),
         };
       }, request.signal);
@@ -133,13 +174,29 @@ export async function handleDownloadAction(
       if (!(await isOutputReady()))
         throw new Error("Output marker unavailable");
       const options = { source, signal, onResult };
-      if (kind === "chapter")
+      if (!selections) {
         await downloader.downloadChapter(locator, options);
-      else
-        await downloader.download(locator, {
-          ...options,
-          chapters: selections,
-        });
+        return;
+      }
+      const current = await downloader.list(locator, options);
+      const selected = selectChapters(current, input, source, selections);
+      if (!selected) return "invalid-selection";
+      // Give the public core API the exact catalog we validated, so it cannot
+      // re-read a changing source or interpret a missing chapter ID as a range.
+      const snapshot = createDownloader({ output: watchOptions.directory }).use(
+        {
+          apiVersion: extensionApiVersion,
+          id: source,
+          create: () => ({
+            id: source,
+            getSeries: async () => selected,
+            getChapter: async () => {
+              throw new Error("Only the selected series is available");
+            },
+          }),
+        },
+      );
+      await snapshot.download(locator, options);
     }, signal),
   );
   if (!taskId) {

@@ -2,6 +2,8 @@
 
 [`comic-dl`](https://github.com/yinyanfr/comic-dl) 的自托管 Web 界面。功能范围与里程碑见 [PLAN.md](PLAN.md)。
 
+默认运行方式是服务直接运行在 NAS 上，由服务下载并把 CBZ 写入 NAS 自己的漫画共享目录。浏览器只负责提交和查看任务，不传输漫画文件。
+
 ## 本地开发
 
 使用 `.node-version` 指定的 Node.js 24：
@@ -24,9 +26,11 @@ npm run dev
 | `COMIC_DL_WEB_EXTENSIONS`     | 已安装的 npm 扩展包名，多个用逗号分隔                               |
 | `COMIC_DL_WEB_EXTENSION_DIR`  | `comic-dl` 托管扩展目录，默认 `./data/extensions`                   |
 | `COMIC_DL_WEB_DEFAULT_SOURCE` | 可选，未在页面选源时优先使用的来源 ID；没有默认源时由核心按链接匹配 |
-| `COMIC_DL_WEB_OUTPUT`         | CBZ 输出目录，默认 `./downloads`                                    |
+| `COMIC_DL_WEB_OUTPUT`         | NAS 上服务可写的本地漫画目录，默认 `./downloads`                    |
 
 来源凭据按各扩展的文档由运行环境提供。
+
+如果 NAS 的共享名称是符号链接，请将 `COMIC_DL_WEB_OUTPUT` 指向共享的实际目录；核心会拒绝沿符号链接写入 CBZ。
 
 ## 扩展市场与漫画目录
 
@@ -42,15 +46,15 @@ npm run dev
 
 在「书架」输入作品链接或短 ID，或从首页的章节列表加入书架。收藏后可开启、暂停或恢复订阅。首次成功检查只记录当时已有的章节；后续检查发现的新章节由服务自动下载。可以手动检查单条或全部订阅，或对单条订阅点击「补下载历史」。下载失败或受限的章节会出现在「需处理章节」，修复原因后可重试。移除作品会清除其书架和订阅记录，已有 CBZ 会保留。
 
-| 变量                          | 用途                                                              |
-| ----------------------------- | ----------------------------------------------------------------- |
-| `COMIC_DL_WEB_SHELF`          | SQLite 书架文件，默认 `./data/shelf.sqlite`；请放在本地持久存储上 |
-| `COMIC_DL_WEB_WATCH_INTERVAL` | 自动检查间隔（秒），默认 `3600`                                   |
-| `COMIC_DL_WEB_OUTPUT_MARKER`  | 可选，漫画输出目录中的普通文件名，例如 `.nas-ready`               |
+| 变量                          | 用途                                                               |
+| ----------------------------- | ------------------------------------------------------------------ |
+| `COMIC_DL_WEB_SHELF`          | SQLite 书架文件，默认 `./data/shelf.sqlite`；放在 NAS 本地持久存储 |
+| `COMIC_DL_WEB_WATCH_INTERVAL` | 自动检查间隔（秒），默认 `3600`                                    |
+| `COMIC_DL_WEB_OUTPUT_MARKER`  | 可选，漫画输出目录中的普通文件名，例如 `.nas-ready`                |
 
 服务启动时自动开始追更，重启后继续处理持久化的下载队列。同一个书架只能有一个 watcher；如果界面报告锁被占用，停止另一个 watcher 后重启 Web 服务。
 
-将 CBZ 写到 NAS 时，只在实际挂载的共享中创建标记文件。标记消失时，追更仍会检查更新，待下载章节会等到挂载恢复后再重试（核心延后一分钟）。手动下载在提交时和开始执行前检查标记。`comic-dl@3.2.0` 的手动下载接口不支持在每次写入前再次检查标记。
+NAS 本地目录不需要配置输出标记。若另外选择把输出写到外部挂载，可选用 `COMIC_DL_WEB_OUTPUT_MARKER`：标记缺失时暂缓追更下载，手动下载在提交和启动前检查标记。
 
 ## 检查与运行
 
@@ -61,5 +65,7 @@ npm run build
 npx playwright install chromium # 首次运行浏览器测试前执行
 npm run test:e2e                # 启动生产构建并运行 Playwright
 ```
+
+可选的外部挂载兼容测试用 `COMIC_DL_WEB_TEST_OUTPUT_MARKER=1 npm run test:e2e -- tests/e2e/shelf.spec.ts` 启用。
 
 构建后运行 `npm start`，生产服务默认监听 `127.0.0.1:3000`，可用 `HOST` 和 `PORT` 覆盖。`npm run format` 可整理格式；本地安装依赖后，Husky 会在提交前通过 lint-staged 检查暂存文件。

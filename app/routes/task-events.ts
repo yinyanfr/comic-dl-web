@@ -1,4 +1,3 @@
-import { downloadQueue } from "../download-queue.server";
 import type { Route } from "./+types/task-events";
 
 const encoder = new TextEncoder();
@@ -26,7 +25,7 @@ export function loader({ request, context }: Route.LoaderArgs) {
       };
       const unsubscribe = forShelf
         ? context.comics.shelfWatcher.subscribe(publish)
-        : downloadQueue.subscribe(publish);
+        : context.comics.downloadQueue.subscribe(publish);
       const interval = setInterval(() => {
         if ((controller.desiredSize ?? 0) > 0) controller.enqueue(heartbeat);
       }, 15_000);

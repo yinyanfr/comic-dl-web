@@ -11,24 +11,41 @@ export interface DownloadTask {
   kind: "series" | "chapter";
   status: TaskStatus;
   results: PublicChapterResult[];
+  failure?: "invalid-selection";
 }
+
+export type DownloadTaskSnapshot = DownloadTask & { resultCount: number };
 
 type RunDownload = (
   signal: AbortSignal,
   record: (result: ChapterResult) => void,
-) => Promise<void>;
+) => Promise<void | "invalid-selection">;
 
 export class DownloadQueue {
   #tasks = new Map<string, DownloadTask>();
   #pending = new Map<string, RunDownload>();
   #active?: { id: string; controller: AbortController };
   #listeners = new Set<() => void>();
+  #draining?: Promise<void>;
+  #closed = false;
 
-  snapshot(): DownloadTask[] {
+  snapshot(): DownloadTaskSnapshot[] {
     return Array.from(this.#tasks.values(), (task) => ({
       ...task,
-      results: [...task.results],
+      resultCount: task.results.length,
+      results: task.results.slice(-20),
     })).reverse();
+  }
+
+  results(id: string, offset: number) {
+    const task = this.#tasks.get(id);
+    if (!task) return undefined;
+    return {
+      id,
+      offset,
+      results: task.results.slice(offset, offset + 20),
+      total: task.results.length,
+    };
   }
 
   subscribe(listener: () => void) {
@@ -39,7 +56,7 @@ export class DownloadQueue {
   }
 
   submit(source: string, kind: DownloadTask["kind"], run: RunDownload) {
-    if (this.#pending.size >= 20) return undefined;
+    if (this.#closed || this.#pending.size >= 20) return undefined;
     if (this.#tasks.size >= 100) {
       for (const [id, task] of this.#tasks) {
         if (
@@ -56,10 +73,25 @@ export class DownloadQueue {
     this.#tasks.set(id, { id, source, kind, status: "queued", results: [] });
     this.#pending.set(id, run);
     this.#notify();
-    queueMicrotask(() => {
-      void this.#drain();
-    });
+    this.#schedule();
     return id;
+  }
+
+  #schedule() {
+    if (this.#closed || this.#draining) return;
+    this.#draining = Promise.resolve()
+      .then(() => this.#drain())
+      .finally(() => {
+        this.#draining = undefined;
+        if (this.#pending.size) this.#schedule();
+      });
+  }
+
+  async stop() {
+    this.#closed = true;
+    for (const id of this.#pending.keys()) this.cancel(id);
+    if (this.#active) this.cancel(this.#active.id);
+    await this.#draining;
   }
 
   cancel(id: string) {
@@ -82,7 +114,6 @@ export class DownloadQueue {
   }
 
   async #drain() {
-    if (this.#active) return;
     for (const [id, run] of this.#pending) {
       const task = this.#tasks.get(id)!;
       this.#pending.delete(id);
@@ -91,11 +122,21 @@ export class DownloadQueue {
       task.status = "running";
       this.#notify();
       try {
-        await run(controller.signal, ({ chapterId, status }) => {
-          task.results.push({ chapterId, status });
-          this.#notify();
-        });
-        task.status = controller.signal.aborted ? "cancelled" : "completed";
+        const failure = await run(
+          controller.signal,
+          ({ chapterId, status }) => {
+            task.results.push({ chapterId, status });
+            this.#notify();
+          },
+        );
+        if (controller.signal.aborted) {
+          task.status = "cancelled";
+        } else if (failure) {
+          task.failure = failure;
+          task.status = "failed";
+        } else {
+          task.status = "completed";
+        }
       } catch {
         task.status = controller.signal.aborted ? "cancelled" : "failed";
       } finally {
@@ -105,5 +146,3 @@ export class DownloadQueue {
     }
   }
 }
-
-export const downloadQueue = new DownloadQueue();

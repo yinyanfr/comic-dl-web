@@ -17,7 +17,6 @@ import { useState } from "react";
 import { Link, useFetcher } from "react-router";
 import { DownloadTasks } from "../download-tasks";
 import { handleDownloadAction } from "../download-actions.server";
-import { downloadQueue } from "../download-queue.server";
 import { readSources } from "../downloader.server";
 import { reusableWebUrl, sourceInput } from "../source-input.server";
 import type { Route } from "./+types/home";
@@ -42,16 +41,27 @@ export async function loader({ request, context }: Route.LoaderArgs) {
     target && (!URL.canParse(target.input) || reusableWebUrl(target.input))
       ? target
       : undefined;
-  return { sources, tasks: downloadQueue.snapshot(), preset };
+  return { sources, tasks: context.comics.downloadQueue.snapshot(), preset };
 }
 
 export function action({ request, context }: Route.ActionArgs) {
-  return handleDownloadAction(request, context.comics.withDownloader);
+  return handleDownloadAction(request, context.comics);
 }
 
-export default function Home({
-  loaderData: { sources, tasks, preset },
-}: Route.ComponentProps) {
+export default function Home({ loaderData }: Route.ComponentProps) {
+  return (
+    <DownloadWorkspace
+      key={JSON.stringify(loaderData.preset ?? null)}
+      {...loaderData}
+    />
+  );
+}
+
+function DownloadWorkspace({
+  sources,
+  tasks,
+  preset,
+}: Route.ComponentProps["loaderData"]) {
   const lookup = useFetcher<typeof action>();
   const download = useFetcher<typeof action>();
   const collect = useFetcher<typeof shelfAction>();
@@ -106,8 +116,12 @@ export default function Home({
               <Alert mb="md">尚未加载漫画源。</Alert>
             ) : null}
             <lookup.Form
-              key={JSON.stringify(preset ?? null)}
               method="post"
+              onChange={() => {
+                lookup.reset();
+                download.reset();
+                collect.reset();
+              }}
               onSubmit={(event) => {
                 download.reset();
                 collect.reset();
@@ -189,6 +203,9 @@ export default function Home({
                   {series.source} · {series.chapters.length} 章
                 </Badge>
               </Group>
+              <Text size="sm" c="dimmed" mb="sm" className={styles.taskId}>
+                作品：{listedInput}
+              </Text>
               <collect.Form method="post" action="/shelf">
                 <input type="hidden" name="input" value={listedInput} />
                 <input type="hidden" name="source" value={series.source} />
@@ -220,6 +237,7 @@ export default function Home({
                   <input type="hidden" name="intent" value="series" />
                   <input type="hidden" name="input" value={listedInput} />
                   <input type="hidden" name="source" value={series.source} />
+                  <input type="hidden" name="catalog" value={series.catalog} />
                   <fieldset className={styles.chapterList}>
                     <legend>选择章节</legend>
                     {series.chapters.map((chapter, index) => (

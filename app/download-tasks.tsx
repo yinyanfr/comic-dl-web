@@ -8,9 +8,11 @@ import {
   Text,
   Title,
 } from "@mantine/core";
+import { useState } from "react";
 import { useFetcher } from "react-router";
-import type { DownloadTask } from "./download-queue.server";
+import type { DownloadTaskSnapshot } from "./download-queue.server";
 import type { action } from "./routes/home";
+import type { loader as resultsLoader } from "./routes/task-results";
 import styles from "./routes/home.module.css";
 import { useTaskUpdates } from "./use-task-updates";
 
@@ -29,9 +31,97 @@ const chapterStatus = {
   failed: { label: "章节失败", color: "red" },
 };
 
-export function DownloadTasks({ tasks }: { tasks: DownloadTask[] }) {
+function ChapterResults({ task }: { task: DownloadTaskSnapshot }) {
+  const history = useFetcher<typeof resultsLoader>();
+  const [showHistory, setShowHistory] = useState(false);
+  const page = showHistory ? history.data : undefined;
+  const results = page?.results ?? task.results;
+
+  function load(offset: number) {
+    setShowHistory(true);
+    void history.load(`/tasks/${task.id}/results?offset=${offset}`);
+  }
+
+  if (!results.length) return null;
+  return (
+    <>
+      <ul className={styles.results} aria-label="逐章结果">
+        {results.map((result) => (
+          <li key={result.chapterId}>
+            <Group justify="space-between" gap="xs">
+              <Text size="sm" className={styles.taskId}>
+                {result.chapterId}
+              </Text>
+              <Badge
+                size="sm"
+                color={chapterStatus[result.status].color}
+                variant="light"
+              >
+                {chapterStatus[result.status].label}
+              </Badge>
+            </Group>
+          </li>
+        ))}
+      </ul>
+      {task.resultCount > task.results.length && (
+        <Group gap="xs">
+          {page ? (
+            <>
+              <Button
+                type="button"
+                size="compact-xs"
+                variant="subtle"
+                disabled={!page.offset || history.state !== "idle"}
+                onClick={() => load(page.offset - task.results.length)}
+              >
+                上一页
+              </Button>
+              <Button
+                type="button"
+                size="compact-xs"
+                variant="subtle"
+                disabled={
+                  page.offset + page.results.length >= task.resultCount ||
+                  history.state !== "idle"
+                }
+                onClick={() => load(page.offset + page.results.length)}
+              >
+                下一页
+              </Button>
+              <Button
+                type="button"
+                size="compact-xs"
+                variant="subtle"
+                onClick={() => setShowHistory(false)}
+              >
+                返回最新结果
+              </Button>
+            </>
+          ) : (
+            <Button
+              type="button"
+              size="compact-xs"
+              variant="subtle"
+              loading={history.state !== "idle"}
+              onClick={() => load(0)}
+            >
+              查看全部 {task.resultCount} 章结果
+            </Button>
+          )}
+        </Group>
+      )}
+    </>
+  );
+}
+
+export function DownloadTasks({
+  tasks: initial,
+}: {
+  tasks: DownloadTaskSnapshot[];
+}) {
   const cancel = useFetcher<typeof action>();
-  useTaskUpdates("tasks");
+  const live = useTaskUpdates("tasks");
+  const tasks = live?.scope === "tasks" ? live.tasks : initial;
 
   return (
     <Paper
@@ -83,29 +173,12 @@ export function DownloadTasks({ tasks }: { tasks: DownloadTask[] }) {
               </Text>
               {task.status === "failed" && (
                 <Text size="sm" c="red" mt="xs">
-                  请检查来源是否可用、章节是否仍有效，以及输出目录是否可写。
+                  {task.failure === "invalid-selection"
+                    ? "章节目录或选择已失效。请重新查看章节后再提交。"
+                    : "请检查来源是否可用、章节是否仍有效，以及输出目录是否可写。"}
                 </Text>
               )}
-              {task.results.length > 0 && (
-                <ul className={styles.results} aria-label="逐章结果">
-                  {task.results.map((result) => (
-                    <li key={result.chapterId}>
-                      <Group justify="space-between" gap="xs">
-                        <Text size="sm" className={styles.taskId}>
-                          {result.chapterId}
-                        </Text>
-                        <Badge
-                          size="sm"
-                          color={chapterStatus[result.status].color}
-                          variant="light"
-                        >
-                          {chapterStatus[result.status].label}
-                        </Badge>
-                      </Group>
-                    </li>
-                  ))}
-                </ul>
-              )}
+              {task.resultCount > 0 && <ChapterResults task={task} />}
               {(task.status === "queued" || task.status === "running") && (
                 <cancel.Form method="post">
                   <input type="hidden" name="intent" value="cancel" />

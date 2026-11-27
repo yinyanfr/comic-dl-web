@@ -8,6 +8,7 @@ import {
 } from "comic-dl";
 import type { OptionValues } from "comic-dl/extension";
 import { z } from "zod";
+import { DownloadQueue } from "./download-queue.server.ts";
 import {
   extensionDirectory,
   packageName,
@@ -75,9 +76,9 @@ async function saveState(state: SourceState) {
 export async function createComicRuntime() {
   let state = await readState();
   const shelfWatcher = createShelfWatcher();
+  const downloadQueue = new DownloadQueue();
   const shutdown = new AbortController();
   let transition: Promise<unknown> = Promise.resolve();
-  const opening = new Set<Promise<void>>();
   const current: WithDownloader = (run, signal, onLoadError) =>
     withConfiguredDownloader(state.settings, run, signal, onLoadError);
   shelfWatcher.start(current);
@@ -89,9 +90,6 @@ export async function createComicRuntime() {
         shutdown.signal.throwIfAborted();
         await shelfWatcher.pause();
         try {
-          // Once these calls enter their callbacks, the core retains their
-          // extension generation until they finish, even across an update.
-          await Promise.all(opening);
           shutdown.signal.throwIfAborted();
           return await run();
         } finally {
@@ -102,39 +100,28 @@ export async function createComicRuntime() {
     return result;
   }
 
-  async function inspect<T>(
+  function inspect<T>(
     run: (downloader: Downloader, snapshot: SourceState) => Promise<T>,
     signal?: AbortSignal,
     onLoadError?: ReportLoadError,
   ) {
-    let observed: Promise<unknown>;
-    do {
-      observed = transition;
-      await observed.catch(() => {});
-    } while (observed !== transition);
-    shutdown.signal.throwIfAborted();
-    signal?.throwIfAborted();
+    const active = signal
+      ? AbortSignal.any([signal, shutdown.signal])
+      : shutdown.signal;
     const snapshot = state;
-    const ready = Promise.withResolvers<void>();
-    opening.add(ready.promise);
-    const opened = () => {
-      opening.delete(ready.promise);
-      ready.resolve();
-    };
+    // The core pins the active extension generation for each read.
     return withConfiguredDownloader(
       snapshot.settings,
-      (downloader) => {
-        opened();
-        return run(downloader, snapshot);
-      },
-      signal,
+      (downloader) => run(downloader, snapshot),
+      active,
       onLoadError,
-    ).finally(opened);
+    );
   }
   const withDownloader: WithDownloader = inspect;
 
   return {
     shelfWatcher,
+    downloadQueue,
     withDownloader,
     inspect,
     lastManagedPackages: () => state.installed,
@@ -142,7 +129,10 @@ export async function createComicRuntime() {
       return change(async () => {
         const result = await manageExtensions(action, spec, {
           directory: extensionDirectory,
-          signal: shutdown.signal,
+          signal: AbortSignal.any([
+            shutdown.signal,
+            AbortSignal.timeout(120_000),
+          ]),
         });
         const next = { ...state, installed: [...result.installed].sort() };
         state = next;
@@ -177,9 +167,13 @@ export async function createComicRuntime() {
       });
     },
     async stop() {
+      const downloads = downloadQueue.stop();
       shutdown.abort();
-      await transition.catch(() => {});
-      await shelfWatcher.stop();
+      await Promise.all([
+        downloads,
+        shelfWatcher.stop(),
+        transition.catch(() => {}),
+      ]);
     },
   };
 }

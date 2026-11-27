@@ -47,6 +47,7 @@ describe("手动下载队列", () => {
           source: "offline",
           kind: "chapter",
           status: "completed",
+          resultCount: 0,
           results: [],
         },
         {
@@ -54,6 +55,7 @@ describe("手动下载队列", () => {
           source: "offline",
           kind: "chapter",
           status: "cancelled",
+          resultCount: 0,
           results: [],
         },
         {
@@ -61,6 +63,7 @@ describe("手动下载队列", () => {
           source: "offline",
           kind: "series",
           status: "cancelled",
+          resultCount: 2,
           results: [
             { chapterId: "ok", status: "downloaded" },
             { chapterId: "locked", status: "restricted" },
@@ -70,5 +73,63 @@ describe("手动下载队列", () => {
     });
     expect(queuedWork).not.toHaveBeenCalled();
     expect(nextWork).toHaveBeenCalledOnce();
+  });
+
+  it("停止时中止运行任务、取消等待任务并等待清理", async () => {
+    const queue = new DownloadQueue();
+    const started = Promise.withResolvers<AbortSignal>();
+    const cleanup = Promise.withResolvers<void>();
+    const run = vi.fn(async (signal: AbortSignal) => {
+      started.resolve(signal);
+      await cleanup.promise;
+    });
+    queue.submit("offline", "chapter", run);
+    const pending = queue.submit("offline", "chapter", run);
+    const signal = await started.promise;
+
+    const stopped = vi.fn();
+    const stopping = queue.stop().then(stopped);
+    expect(signal.aborted).toBe(true);
+    expect(queue.snapshot()[0]).toMatchObject({
+      id: pending,
+      status: "cancelled",
+    });
+    expect(queue.submit("offline", "chapter", run)).toBeUndefined();
+    await Promise.resolve();
+    expect(stopped).not.toHaveBeenCalled();
+
+    cleanup.resolve();
+    await stopping;
+    expect(run).toHaveBeenCalledOnce();
+    expect(queue.snapshot().map(({ status }) => status)).toEqual([
+      "cancelled",
+      "cancelled",
+    ]);
+  });
+
+  it("状态只返回最近的结果，历史结果仍可按页读取", async () => {
+    const queue = new DownloadQueue();
+    const id = queue.submit("offline", "series", async (_signal, record) => {
+      for (let chapter = 1; chapter <= 23; chapter++) {
+        record({
+          chapterId: String(chapter),
+          status: "skipped",
+          path: "archive.cbz",
+          attempts: 1,
+        });
+      }
+    })!;
+    await vi.waitFor(() => {
+      expect(queue.snapshot()[0]).toMatchObject({
+        status: "completed",
+        resultCount: 23,
+      });
+    });
+    expect(queue.snapshot()[0].results).toHaveLength(20);
+    expect(queue.snapshot()[0].results[0].chapterId).toBe("4");
+    expect(queue.results(id, 0)?.results.at(-1)?.chapterId).toBe("20");
+    expect(
+      queue.results(id, 20)?.results.map(({ chapterId }) => chapterId),
+    ).toEqual(["21", "22", "23"]);
   });
 });

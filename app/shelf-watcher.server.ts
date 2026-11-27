@@ -10,6 +10,7 @@ type WatcherState = "starting" | "running" | "locked" | "stopped";
 export function createShelfWatcher() {
   const listeners = new Set<() => void>();
   let state: WatcherState = "stopped";
+  let generation = 0;
   let active: { controller: AbortController; done: Promise<void> } | undefined;
   let closed = false;
   let outputReady = true;
@@ -49,11 +50,12 @@ export function createShelfWatcher() {
   }
 
   return {
-    snapshot: () => ({ state, outputReady }),
+    snapshot: () => ({ state, outputReady, generation }),
     notify,
     pause,
     start(withDownloader: WithDownloader) {
       if (closed || active) return;
+      generation++;
       state = "starting";
       notify();
       const controller = new AbortController();

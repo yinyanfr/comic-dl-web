@@ -43,9 +43,20 @@ export async function startExtensionRegistry(directory: string) {
   );
 
   let updated = false;
+  let updateGate: { requested: () => void; release: Promise<void> } | undefined;
   const registry = createServer((request, response) => {
     const path = decodeURIComponent(request.url ?? "");
     if (path === `/${testPackage}`) {
+      if (updated && updateGate) {
+        updateGate.requested();
+        void updateGate.release.then(sendMetadata);
+      } else {
+        sendMetadata();
+      }
+      return;
+    }
+
+    function sendMetadata() {
       const available = updated ? bundles : bundles.slice(0, 1);
       const versions = Object.fromEntries(
         available.map(({ manifest, integrity }) => [
@@ -67,7 +78,6 @@ export async function startExtensionRegistry(directory: string) {
           versions,
         }),
       );
-      return;
     }
     const artifact = bundles.find(
       ({ manifest }) => path === `/${manifest.version}.tgz`,
@@ -89,6 +99,18 @@ export async function startExtensionRegistry(directory: string) {
     url,
     publishUpdate() {
       updated = true;
+    },
+    holdUpdate() {
+      const requested = Promise.withResolvers<void>();
+      const release = Promise.withResolvers<void>();
+      updateGate = { requested: requested.resolve, release: release.promise };
+      return {
+        requested: requested.promise,
+        release() {
+          updateGate = undefined;
+          release.resolve();
+        },
+      };
     },
     async stop() {
       const closed = once(registry, "close");

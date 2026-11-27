@@ -182,10 +182,14 @@ test("收藏、基线、后台追更、重启恢复、补历史及重试", async
   expect(await shelf.archives()).toHaveLength(7);
 });
 
-test("NAS 标记消失时拒绝手动下载、保留追更队列，恢复后继续下载", async ({
+test("可选输出标记消失时拒绝手动下载、保留追更队列，恢复后继续下载", async ({
   shelf,
   page,
 }) => {
+  test.skip(
+    process.env.COMIC_DL_WEB_TEST_OUTPUT_MARKER !== "1",
+    "可选外部挂载场景",
+  );
   test.setTimeout(90_000);
   await writeFile(shelf.marker, "");
   const service = await shelf.start({ marker: true });

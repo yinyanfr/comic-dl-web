@@ -29,31 +29,55 @@ async function withShelf<T>(
   }
 }
 
-export async function readShelf() {
+export async function readShelf(requestedPage: number) {
   return withShelf((shelf) => {
+    const all = shelf.list();
+    const pageSize = 25;
+    const pages = Math.max(1, Math.ceil(all.length / pageSize));
+    const page = Math.min(requestedPage, pages);
     const statuses = new Map(
-      shelf
-        .status()
-        .map(({ id, lastCheck, lastSuccess, result, pending, complete }) => [
-          id,
-          { lastCheck, lastSuccess, result, pending, complete },
-        ]),
+      shelf.status().map((status) => [status.id, status]),
     );
-    return shelf.list().map(({ id, sourceId, input, title, following }) => ({
-      id,
-      sourceId,
-      input:
-        sourceId === "fixture"
-          ? fixtureDirectory === input
-            ? "demo"
-            : ""
-          : (workInput.safeParse(input).data ?? ""),
-      title,
-      following: Boolean(following),
-      status: statuses.get(id),
-      attention: shelf.needsAttention(id),
-    }));
+    const entries = all
+      .slice((page - 1) * pageSize, page * pageSize)
+      .map(({ id, sourceId, input, title, following }) => {
+        const status = statuses.get(id);
+        return {
+          id,
+          sourceId,
+          input:
+            sourceId === "fixture"
+              ? fixtureDirectory === input
+                ? "demo"
+                : ""
+              : (workInput.safeParse(input).data ?? ""),
+          title,
+          following: Boolean(following),
+          status: status && {
+            lastCheck: status.lastCheck,
+            lastSuccess: status.lastSuccess,
+            result: status.result,
+            pending: status.pending,
+            complete: status.complete,
+          },
+          attention:
+            status && (status.restricted || status.blocked)
+              ? shelf.needsAttention(id)
+              : [],
+        };
+      });
+    return {
+      entries,
+      page,
+      pages,
+      hasSubscriptions: all.some(({ following }) => following),
+    };
   });
+}
+
+export function shelfPage(request: Request) {
+  const page = Number(new URL(request.url).searchParams.get("page") ?? 1);
+  return Number.isSafeInteger(page) && page > 0 ? page : 1;
 }
 
 const entryAction = z.discriminatedUnion("intent", [

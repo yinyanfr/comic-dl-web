@@ -167,4 +167,39 @@ test("关闭页面后生成 CBZ，刷新可见结果，重跑会跳过已有章�
   ).toHaveCount(1);
   await expect(latestTask(reopened).getByText("fixture · 单章")).toBeVisible();
   expect(await archives()).toHaveLength(3);
+
+  manifest.chapters.push({
+    id: "2-3",
+    title: "有数字范围形状的 ID",
+    pages: ["blue.png"],
+  });
+  const seriesFile = join(fixtureDirectory, "series.json");
+  await writeFile(seriesFile, JSON.stringify(manifest));
+  await listChapters(reopened);
+  await reopened.getByLabel("章节范围（可选）").fill("2-3");
+  await reopened.getByRole("button", { name: "提交下载" }).click();
+  await expect(latestTask(reopened).getByRole("listitem")).toHaveCount(2);
+  await expect(
+    latestTask(reopened).getByRole("listitem").filter({ hasText: "middle" }),
+  ).toContainText("跳过");
+  await expect(
+    latestTask(reopened).getByRole("listitem").filter({ hasText: "closing" }),
+  ).toContainText("跳过");
+  expect(await archives()).toHaveLength(3);
+
+  manifest.chapters.reverse();
+  await writeFile(seriesFile, JSON.stringify(manifest));
+  await reopened.getByRole("button", { name: "提交下载" }).click();
+  await expect(
+    latestTask(reopened).getByText("章节目录或选择已失效。", { exact: false }),
+  ).toBeVisible();
+  expect(await archives()).toHaveLength(3);
+
+  await reopened.getByLabel("作品或章节链接 / 短 ID").fill("another-work");
+  await expect(reopened.getByRole("heading", { name: "章节列表" })).toHaveCount(
+    0,
+  );
+  await expect(reopened.getByRole("button", { name: "加入书架" })).toHaveCount(
+    0,
+  );
 });

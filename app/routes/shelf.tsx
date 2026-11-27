@@ -11,8 +11,9 @@ import {
   TextInput,
   Title,
 } from "@mantine/core";
-import { Link, useFetcher } from "react-router";
-import { handleShelfAction, readShelf } from "../shelf.server";
+import { useEffect, useRef } from "react";
+import { Link, useFetcher, useRevalidator } from "react-router";
+import { handleShelfAction, readShelf, shelfPage } from "../shelf.server";
 import { readSources } from "../downloader.server";
 import { useTaskUpdates } from "../use-task-updates";
 import type { Route } from "./+types/shelf";
@@ -23,11 +24,17 @@ export function meta() {
 }
 
 export async function loader({ context, request }: Route.LoaderArgs) {
-  const [entries, sources] = await Promise.all([
-    readShelf().catch(() => null),
+  const requestedPage = shelfPage(request);
+  const [shelf, sources] = await Promise.all([
+    readShelf(requestedPage).catch(() => null),
     readSources(context.comics.withDownloader, request.signal),
   ]);
-  return { entries, sources, watcher: context.comics.shelfWatcher.snapshot() };
+  return {
+    requestedPage,
+    shelf,
+    sources,
+    watcher: context.comics.shelfWatcher.snapshot(),
+  };
 }
 
 export function action({ request, context }: Route.ActionArgs) {
@@ -79,8 +86,8 @@ function ActionFeedback({
 }
 
 type ShelfItem = NonNullable<
-  Awaited<ReturnType<typeof loader>>["entries"]
->[number];
+  Awaited<ReturnType<typeof loader>>["shelf"]
+>["entries"][number];
 
 function ShelfEntry({
   entry,
@@ -239,12 +246,32 @@ function ShelfEntry({
   );
 }
 
-export default function Shelf({
-  loaderData: { entries, sources, watcher },
-}: Route.ComponentProps) {
+export default function Shelf({ loaderData }: Route.ComponentProps) {
+  return <ShelfPage key={loaderData.requestedPage} {...loaderData} />;
+}
+
+function ShelfPage({
+  requestedPage,
+  shelf,
+  sources,
+  watcher: initialWatcher,
+}: Route.ComponentProps["loaderData"]) {
   const add = useFetcher<typeof action>();
   const check = useFetcher<typeof action>();
-  useTaskUpdates("shelf");
+  const live = useTaskUpdates("shelf", requestedPage);
+  const updated =
+    live?.scope === "shelf" && live.requestedPage === requestedPage
+      ? live
+      : undefined;
+  const watcher = updated?.watcher ?? initialWatcher;
+  const current = updated ? updated.shelf : shelf;
+  const { revalidate } = useRevalidator();
+  const generation = useRef(initialWatcher.generation);
+  useEffect(() => {
+    if (watcher.generation === generation.current) return;
+    generation.current = watcher.generation;
+    if (watcher.generation !== initialWatcher.generation) void revalidate();
+  }, [watcher.generation, initialWatcher.generation, revalidate]);
 
   return (
     <Container component="main" size="lg" className={styles.main}>
@@ -309,7 +336,7 @@ export default function Shelf({
                 <Button
                   type="submit"
                   disabled={
-                    add.state !== "idle" || !sources.ids.length || !entries
+                    add.state !== "idle" || !sources.ids.length || !current
                   }
                 >
                   加入书架
@@ -319,7 +346,7 @@ export default function Shelf({
             <ActionFeedback fetcher={add} />
           </Stack>
         </Paper>
-        {entries == null ? (
+        {current == null ? (
           <Alert color="red" role="alert">
             无法打开书架，请检查服务端存储配置。
           </Alert>
@@ -331,23 +358,47 @@ export default function Shelf({
                 name="intent"
                 value="check-all"
                 variant="light"
-                disabled={
-                  check.state !== "idle" ||
-                  !entries.some(({ following }) => following)
-                }
+                disabled={check.state !== "idle" || !current.hasSubscriptions}
               >
                 检查全部订阅
               </Button>
             </check.Form>
             <ActionFeedback fetcher={check} />
-            {entries.length === 0 && <Text c="dimmed">书架暂无作品。</Text>}
-            {entries.map((entry) => (
+            {current.entries.length === 0 && (
+              <Text c="dimmed">书架暂无作品。</Text>
+            )}
+            {current.entries.map((entry) => (
               <ShelfEntry
                 key={entry.id}
                 entry={entry}
                 sourceAvailable={sources.ids.includes(entry.sourceId)}
               />
             ))}
+            {current.pages > 1 && (
+              <Group aria-label="书架分页">
+                {current.page > 1 && (
+                  <Button
+                    component={Link}
+                    to={`/shelf?page=${current.page - 1}`}
+                    variant="light"
+                  >
+                    上一页
+                  </Button>
+                )}
+                <Text size="sm">
+                  第 {current.page} / {current.pages} 页
+                </Text>
+                {current.page < current.pages && (
+                  <Button
+                    component={Link}
+                    to={`/shelf?page=${current.page + 1}`}
+                    variant="light"
+                  >
+                    下一页
+                  </Button>
+                )}
+              </Group>
+            )}
           </>
         )}
       </Stack>

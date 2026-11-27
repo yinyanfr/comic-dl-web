@@ -124,8 +124,22 @@ test("安装、更新、卸载；来源设置、动态目录与追更共享生�
     await expect(page.getByText("已完成 0 章", { exact: false })).toBeVisible();
 
     registry.publishUpdate();
+    const update = registry.holdUpdate();
     await page.goto(market);
-    await page.getByRole("button", { name: "更新全部托管扩展" }).click();
+    try {
+      await page.getByRole("button", { name: "更新全部托管扩展" }).click();
+      await update.requested;
+      const duringUpdate = await page.request.get(
+        `${service.url}/catalog?source=catalog-test`,
+        { timeout: 3_000 },
+      );
+      expect(duringUpdate.ok()).toBe(true);
+      expect(await duringUpdate.text()).toContain(
+        "1.0.0 default browse default all 1",
+      );
+    } finally {
+      update.release();
+    }
     await expect(page.getByText("扩展操作已完成。")).toBeVisible({
       timeout: 15_000,
     });
