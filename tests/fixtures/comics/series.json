@@ -1,0 +1,12 @@
+{
+  "workId": "demo",
+  "chapters": [
+    {
+      "id": "opening",
+      "title": "开篇",
+      "pages": ["blue.png", "gold.png"]
+    },
+    { "id": "middle", "title": "中篇", "pages": ["blue.png"] },
+    { "id": "closing", "title": "终篇", "pages": ["gold.png"] }
+  ]
+}

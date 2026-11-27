@@ -8,9 +8,13 @@ import {
 import { Links, Meta, Outlet, Scripts, ScrollRestoration } from "react-router";
 
 const theme = createTheme({
-  primaryColor: "teal",
+  primaryColor: "blue",
   defaultRadius: "md",
 });
+
+export const links = () => [
+  { rel: "icon", type: "image/png", href: "/comic-icon.png" },
+];
 
 export function Layout({ children }: { children: React.ReactNode }) {
   return (

@@ -1,5 +1,10 @@
+import { createDownloader } from "comic-dl";
+import { extensionApiVersion, type SourceExtension } from "comic-dl/extension";
 import { describe, expect, it } from "vitest";
-import { createAppDownloader } from "../../app/downloader.server";
+import {
+  createAppDownloader,
+  resolveDownloadInput,
+} from "../../app/downloader.server";
 
 describe("测试源注册", () => {
   it.each(["development", "test"])(
@@ -28,4 +33,31 @@ describe("测试源注册", () => {
 
     expect(downloader.sources()).toEqual([]);
   });
+});
+
+it("按显式来源、默认来源、链接识别的顺序选源", () => {
+  const extension = (id: string, hostname: string): SourceExtension => ({
+    id,
+    apiVersion: extensionApiVersion,
+    matchesUrl: (url) => url.hostname === hostname,
+    create: () => {
+      throw new Error("选源不应读取章节");
+    },
+  });
+  const linked = extension("linked", "comics.example");
+  const fallback = extension("fallback", "other.example");
+  const url = "https://comics.example/series";
+
+  const withDefault = createDownloader({ source: "fallback" })
+    .use(linked)
+    .use(fallback);
+  expect(
+    resolveDownloadInput(withDefault, "short-id", "series", "linked").source,
+  ).toBe("linked");
+  expect(resolveDownloadInput(withDefault, url, "series").source).toBe(
+    "fallback",
+  );
+  expect(
+    resolveDownloadInput(createDownloader().use(linked), url, "series").source,
+  ).toBe("linked");
 });

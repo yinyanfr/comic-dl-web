@@ -1,7 +1,54 @@
 .main {
-  padding-block: clamp(2rem, 8vw, 5rem);
+  padding-block: clamp(1.5rem, 5vw, 4rem);
+}
+
+.workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+  align-items: start;
+  gap: var(--mantine-spacing-lg);
 }
 
 .sources {
   border-block-start: 3px solid var(--mantine-primary-color-filled);
+}
+
+.chapterList {
+  max-block-size: 22rem;
+  min-inline-size: 0;
+  overflow: auto;
+  margin: 0;
+  padding: var(--mantine-spacing-xs);
+  border: 1px solid var(--mantine-color-default-border);
+  border-radius: var(--mantine-radius-default);
+}
+
+.chapter {
+  padding: var(--mantine-spacing-xs);
+  overflow-wrap: anywhere;
+}
+
+.chapter + .chapter,
+.results li + li {
+  border-block-start: 1px solid var(--mantine-color-default-border);
+}
+
+.results {
+  list-style: none;
+  margin: var(--mantine-spacing-xs) 0 0;
+  padding: 0;
+}
+
+.results li {
+  padding-block: var(--mantine-spacing-xs);
+}
+
+.taskId {
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 48em) {
+  .workspace {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }

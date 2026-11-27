@@ -149,6 +149,10 @@ vite.config.ts.timestamp-*
 /build/
 /.react-router/
 
+# Local service data
+/data/
+/downloads/
+
 # Playwright
 /playwright-report/
 /test-results/
