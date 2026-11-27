@@ -1,7 +1,12 @@
 import { data } from "react-router";
 import { z } from "zod";
 import { downloadQueue } from "./download-queue.server";
-import { resolveDownloadInput, withAppDownloader } from "./downloader.server";
+import {
+  isOutputReady,
+  resolveDownloadInput,
+  withAppDownloader,
+} from "./downloader.server";
+import { sourceInput } from "./source-input.server";
 
 interface DownloadActionData {
   error?: string;
@@ -11,29 +16,6 @@ interface DownloadActionData {
 
 const respond = data<DownloadActionData>;
 
-const sourceInput = z.object({
-  input: z
-    .string()
-    .trim()
-    .min(1)
-    .max(4096)
-    .refine((input) => {
-      const url = URL.parse(input);
-      if (url) {
-        return (
-          (url.protocol === "http:" || url.protocol === "https:") &&
-          !url.username &&
-          !url.password &&
-          !input.includes("\\")
-        );
-      }
-      return /^[^\s/\\:]+$/.test(input) && input !== "." && input !== "..";
-    }),
-  source: z
-    .string()
-    .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/)
-    .optional(),
-});
 const chapterSelection = z
   .object({
     chapters: z.array(z.string().min(1).max(4096)).max(10_000),
@@ -136,9 +118,17 @@ export async function handleDownloadAction(request: Request) {
       { status: 422 },
     );
   }
+  if (!(await isOutputReady())) {
+    return respond(
+      { error: "漫画输出目录的挂载标记不可用，请恢复挂载后再提交。" },
+      { status: 503 },
+    );
+  }
   const taskId = downloadQueue.submit(source, kind, (signal, onResult) =>
     withAppDownloader(async (downloader) => {
       const { locator } = resolveDownloadInput(downloader, input, kind, source);
+      if (!(await isOutputReady()))
+        throw new Error("Output marker unavailable");
       const options = { source, signal, onResult };
       if (kind === "chapter")
         await downloader.downloadChapter(locator, options);

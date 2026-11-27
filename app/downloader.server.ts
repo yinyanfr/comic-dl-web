@@ -1,4 +1,5 @@
-import { resolve } from "node:path";
+import { lstat } from "node:fs/promises";
+import { join, resolve } from "node:path";
 import {
   createDownloader,
   fixtureExtension,
@@ -14,6 +15,16 @@ const packageName = z
   .regex(/^(?:@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]*$/);
 const environmentSchema = z.object({
   COMIC_DL_WEB_OUTPUT: path.default("./downloads"),
+  COMIC_DL_WEB_SHELF: path.default("./data/shelf.sqlite"),
+  COMIC_DL_WEB_WATCH_INTERVAL: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(31_536_000)
+    .default(3600),
+  COMIC_DL_WEB_OUTPUT_MARKER: path
+    .refine((name) => !/[/\\\0]/.test(name) && name !== "." && name !== "..")
+    .optional(),
   COMIC_DL_WEB_EXTENSION_DIR: path.optional(),
   COMIC_DL_WEB_EXTENSIONS: z
     .string()
@@ -51,7 +62,13 @@ export function createAppDownloader(
 }
 
 const config = environmentSchema.parse(process.env);
-const fixtureDirectory = fixtureEnabled(process.env)
+export const shelfFile = resolve(config.COMIC_DL_WEB_SHELF);
+export const watchOptions = {
+  directory: resolve(config.COMIC_DL_WEB_OUTPUT),
+  intervalSeconds: config.COMIC_DL_WEB_WATCH_INTERVAL,
+  outputMarker: config.COMIC_DL_WEB_OUTPUT_MARKER,
+};
+export const fixtureDirectory = fixtureEnabled(process.env)
   ? resolve(
       path.parse(
         process.env.COMIC_DL_WEB_FIXTURE_DIR ?? "./tests/fixtures/comics",
@@ -63,6 +80,7 @@ const localDownloader = createAppDownloader();
 export async function withAppDownloader<T>(
   run: (downloader: Downloader) => Promise<T>,
   signal?: AbortSignal,
+  onLoadError?: (cause: unknown) => void,
 ) {
   if (
     !config.COMIC_DL_WEB_EXTENSION_DIR &&
@@ -79,12 +97,20 @@ export async function withAppDownloader<T>(
       source: config.COMIC_DL_WEB_DEFAULT_SOURCE,
       output: resolve(config.COMIC_DL_WEB_OUTPUT),
       signal,
+      onLoadError,
     },
     async (downloader) => {
       if (fixtureDirectory) downloader.use(fixtureExtension);
       return run(downloader);
     },
   );
+}
+
+export async function isOutputReady() {
+  const { directory, outputMarker } = watchOptions;
+  if (!outputMarker) return true;
+  const marker = await lstat(join(directory, outputMarker)).catch(() => null);
+  return marker?.isFile() ?? false;
 }
 
 export function resolveDownloadInput(

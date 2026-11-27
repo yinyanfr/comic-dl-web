@@ -8,11 +8,11 @@ import {
   Text,
   Title,
 } from "@mantine/core";
-import { useEffect } from "react";
-import { useFetcher, useRevalidator } from "react-router";
+import { useFetcher } from "react-router";
 import type { DownloadTask } from "./download-queue.server";
 import type { action } from "./routes/home";
 import styles from "./routes/home.module.css";
+import { useTaskUpdates } from "./use-task-updates";
 
 const taskStatus = {
   queued: { label: "排队中", color: "gray" },
@@ -31,22 +31,7 @@ const chapterStatus = {
 
 export function DownloadTasks({ tasks }: { tasks: DownloadTask[] }) {
   const cancel = useFetcher<typeof action>();
-  const { revalidate } = useRevalidator();
-
-  useEffect(() => {
-    const events = new EventSource("/tasks/events");
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    events.addEventListener("tasks", () => {
-      timer ??= setTimeout(() => {
-        timer = undefined;
-        void revalidate();
-      }, 100);
-    });
-    return () => {
-      clearTimeout(timer);
-      events.close();
-    };
-  }, [revalidate]);
+  useTaskUpdates("tasks");
 
   return (
     <Paper

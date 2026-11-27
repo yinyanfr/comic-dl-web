@@ -14,12 +14,13 @@ import {
   Title,
 } from "@mantine/core";
 import { useState } from "react";
-import { useFetcher } from "react-router";
+import { Link, useFetcher } from "react-router";
 import { DownloadTasks } from "../download-tasks";
 import { handleDownloadAction } from "../download-actions.server";
 import { downloadQueue } from "../download-queue.server";
 import { withAppDownloader } from "../downloader.server";
 import type { Route } from "./+types/home";
+import type { action as shelfAction } from "./shelf";
 import styles from "./home.module.css";
 
 export function meta() {
@@ -46,6 +47,7 @@ export default function Home({
 }: Route.ComponentProps) {
   const lookup = useFetcher<typeof action>();
   const download = useFetcher<typeof action>();
+  const collect = useFetcher<typeof shelfAction>();
   const [listedInput, setListedInput] = useState("");
   const series = lookup.state === "idle" ? lookup.data?.series : undefined;
   const lookingUp = lookup.state !== "idle";
@@ -55,12 +57,15 @@ export default function Home({
 
   return (
     <Container component="main" size="lg" className={styles.main}>
-      <Group component="header" gap="md" wrap="nowrap" mb="xl">
+      <Group component="header" gap="md" mb="xl">
         <Image src="/comic-icon.png" alt="" w={64} h={64} />
         <div>
           <Title order={1}>comic-dl-web</Title>
           <Text c="dimmed">自托管漫画下载 · 每章一个 CBZ</Text>
         </div>
+        <Button component={Link} to="/shelf" variant="subtle" ml="auto">
+          书架
+        </Button>
       </Group>
 
       <div className={styles.workspace}>
@@ -89,6 +94,7 @@ export default function Home({
               method="post"
               onSubmit={(event) => {
                 download.reset();
+                collect.reset();
                 setListedInput(
                   String(new FormData(event.currentTarget).get("input") ?? ""),
                 );
@@ -165,6 +171,30 @@ export default function Home({
                   {series.source} · {series.chapters.length} 章
                 </Badge>
               </Group>
+              <collect.Form method="post" action="/shelf">
+                <input type="hidden" name="input" value={listedInput} />
+                <input type="hidden" name="source" value={series.source} />
+                <Button
+                  type="submit"
+                  name="intent"
+                  value="add"
+                  variant="light"
+                  mb="sm"
+                  disabled={collect.state !== "idle"}
+                >
+                  加入书架
+                </Button>
+              </collect.Form>
+              {collect.state === "idle" && collect.data?.error && (
+                <Alert color="red" role="alert" mb="sm">
+                  {collect.data.error}
+                </Alert>
+              )}
+              {collect.state === "idle" && collect.data?.message && (
+                <Text role="status" size="sm" mb="sm">
+                  {collect.data.message}
+                </Text>
+              )}
               {series.chapters.length === 0 ? (
                 <Text c="dimmed">这个作品没有可选章节。</Text>
               ) : (

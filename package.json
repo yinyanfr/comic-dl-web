@@ -7,9 +7,9 @@
     "node": "24.x"
   },
   "scripts": {
-    "dev": "react-router dev",
+    "dev": "node server.ts --dev",
     "build": "react-router build",
-    "start": "react-router-serve ./build/server/index.js",
+    "start": "node server.ts",
     "check": "npm run format:check && npm run lint && npm run typecheck",
     "typecheck": "react-router typegen && tsc --noEmit",
     "lint": "eslint . --max-warnings 0",
@@ -29,9 +29,10 @@
   "dependencies": {
     "@mantine/core": "^9.8.2",
     "@mantine/hooks": "^9.8.2",
+    "@react-router/express": "^7.18.7",
     "@react-router/node": "^7.18.7",
-    "@react-router/serve": "^7.18.7",
     "comic-dl": "3.2.0",
+    "express": "^4.22.3",
     "isbot": "^5.2.4",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
@@ -42,6 +43,7 @@
     "@eslint/js": "^10.0.0",
     "@playwright/test": "^1.65.1",
     "@react-router/dev": "^7.18.7",
+    "@types/express": "^4.17.25",
     "@types/node": "^24.19.4",
     "@types/react": "^19.3.3",
     "@types/react-dom": "^19.3.0",

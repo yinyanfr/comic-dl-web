@@ -18,7 +18,12 @@ export default defineConfig({
   webServer: [
     {
       command: "npm run start",
-      env: { HOST: host, PORT: port, NODE_ENV: "production" },
+      env: {
+        HOST: host,
+        PORT: port,
+        NODE_ENV: "production",
+        COMIC_DL_WEB_SHELF: "test-results/home-shelf.sqlite",
+      },
       url: baseURL,
     },
     {
@@ -30,6 +35,7 @@ export default defineConfig({
         COMIC_DL_WEB_FIXTURE: "1",
         COMIC_DL_WEB_FIXTURE_DIR: fixtureDirectory,
         COMIC_DL_WEB_OUTPUT: archiveDirectory,
+        COMIC_DL_WEB_SHELF: "test-results/download-shelf.sqlite",
       },
       url: fixtureURL,
     },

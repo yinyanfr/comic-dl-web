@@ -2,10 +2,13 @@ import { downloadQueue } from "../download-queue.server";
 import type { Route } from "./+types/task-events";
 
 const encoder = new TextEncoder();
-const changeEvent = encoder.encode("event: tasks\ndata: changed\n\n");
 const heartbeat = encoder.encode(": keepalive\n\n");
 
-export function loader({ request }: Route.LoaderArgs) {
+export function loader({ request, context }: Route.LoaderArgs) {
+  const forShelf = new URL(request.url).searchParams.get("scope") === "shelf";
+  const changeEvent = encoder.encode(
+    `event: ${forShelf ? "shelf" : "tasks"}\ndata: changed\n\n`,
+  );
   let cleanup: () => void;
   let pending = true;
   function flush(controller: ReadableStreamDefaultController<Uint8Array>) {
@@ -17,10 +20,13 @@ export function loader({ request }: Route.LoaderArgs) {
 
   const stream = new ReadableStream<Uint8Array>({
     start(controller) {
-      const unsubscribe = downloadQueue.subscribe(() => {
+      const publish = () => {
         pending = true;
         flush(controller);
-      });
+      };
+      const unsubscribe = forShelf
+        ? context.shelfWatcher.subscribe(publish)
+        : downloadQueue.subscribe(publish);
       const interval = setInterval(() => {
         if ((controller.desiredSize ?? 0) > 0) controller.enqueue(heartbeat);
       }, 15_000);
