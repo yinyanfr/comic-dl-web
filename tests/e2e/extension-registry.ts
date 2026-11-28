@@ -8,7 +8,10 @@ import { promisify } from "node:util";
 
 export const testPackage = "@fixture/catalog-source";
 
-export async function startExtensionRegistry(directory: string) {
+export async function startExtensionRegistry(
+  directory: string,
+  { host = "127.0.0.1", advertisedHost = "127.0.0.1" } = {},
+) {
   const bundles = await Promise.all(
     ["1.0.0", "1.1.0", "2.0.0"].map(async (version) => {
       const project = join(directory, version);
@@ -89,12 +92,12 @@ export async function startExtensionRegistry(directory: string) {
     });
     response.end(artifact?.tarball ?? '{"error":"Not found"}');
   });
-  registry.listen(0, "127.0.0.1");
+  registry.listen(0, host);
   await once(registry, "listening");
   const address = registry.address();
   if (!address || typeof address === "string")
     throw new Error("Test registry has no TCP address");
-  const url = `http://127.0.0.1:${address.port}`;
+  const url = `http://${advertisedHost}:${address.port}`;
   return {
     url,
     publishUpdate() {

@@ -40,7 +40,7 @@ function escape(value: string) {
 }
 
 // Mounted before Vite, static files and React Router: no business endpoint can
-// bypass authentication. The login document is standalone and loads no assets.
+// bypass authentication. The standalone login only references public PWA assets.
 export function createAuthMiddleware({
   password = process.env.COMIC_DL_WEB_ADMIN_PASSWORD,
   adminOrigin = process.env.COMIC_DL_WEB_ADMIN_ORIGIN,

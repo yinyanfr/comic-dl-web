@@ -1,6 +1,6 @@
 {
   "name": "comic-dl-web",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "private": true,
   "type": "module",
   "engines": {
@@ -17,6 +17,7 @@
     "format:check": "prettier --check .",
     "test": "vitest run",
     "test:e2e": "playwright test",
+    "test:container": "playwright test --config playwright.container.config.ts",
     "prepare": "husky"
   },
   "lint-staged": {

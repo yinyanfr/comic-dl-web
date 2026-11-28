@@ -62,7 +62,10 @@
 
 ### 4. 自托管部署与发布验收
 
-- [ ] 提供 Dockerfile、Compose 和中英文部署指南。容器以非 root 用户运行，推荐本机、可信局域网或 VPN 使用，不建议公网部署；可通过 `COMIC_DL_WEB_ADMIN_PASSWORD` 启用内置管理员登录，页面、API、封面和 SSE 均受保护。远程访问仍建议 HTTPS 与认证反向代理，应用端口仅对代理或可信本地网络开放；校验浏览器写请求来源，代理配置包含 TLS 和 SSE 转发。未经认证的请求不得读取配置或提交任务。
-- [ ] 文档说明如何把 NAS 本地持久目录提供给服务、UID/GID、备份和升级。若 CLI 与 Web 共享同一个书架文件，仅其中一端运行 watcher，并统一来源配置与输出路径。
+- [x] 提供 Dockerfile、Compose、环境变量示例和宿主机 Nginx HTTPS/SSE 示例。容器以非 root 用户运行，可指定数字 UID/GID，只读根文件系统；默认仅向宿主机回环地址发布端口，Compose 要求非空管理员密码。推荐本机、可信局域网或 VPN 使用，不建议公网部署；页面、API、封面和 SSE 均受保护，仅安装清单与图标可匿名读取。
+- [x] 使用与部署分为两篇静态 Markdown，提供中文、英文、日文。覆盖 NAS 本地目录、权限、输出标记、来源凭据、PWA、备份、升级、回退及单 watcher 限制。README 引导至主项目文档站，并提供本仓库正文作为集成前备选。
+- [x] 提供 `main` 包版本变化触发的 GitHub Release／GHCR 流程，支持 amd64/arm64；验证锁文件和英文 Changelog、通过完整 CI 后发布固定版本镜像与 `v<version>` Release，输出摘要、provenance 和 SBOM。
+- [ ] 主项目会话将三语正文集成至现有文档站并验证导航、链接和构建；交接映射见 [docs/README.md](docs/README.md)。
 - [ ] 在 NAS 上验证：重启保留配置和书架，关闭浏览器后仍可追更，CBZ 写入 NAS 本地漫画目录；用外部阅读器或内容服务打开最终 CBZ 并核对页序。
-- [ ] CI 从干净检出完成安装、格式/lint/类型检查、离线测试、生产构建和 Playwright 验收。将实际部署结果记录在发布说明里。
+- [ ] CI 从干净检出完成检查、离线测试、构建、Playwright，以及 amd64/arm64 原生镜像构建和容器验收；工作流已配置，远端实际运行结果待验证。
+- [ ] 首版已准备为 `0.1.0`；维护者完成真实环境验收或记录限制后，确认推送 `main` 触发 GHCR 镜像及 Release，当前尚未发布。详细清单见 [docs/release-checklist.md](docs/release-checklist.md)。

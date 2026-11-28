@@ -1,0 +1,161 @@
+name: Publish comic-dl-web
+
+on:
+  push:
+    branches: [main]
+    paths: [package.json]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: web-release
+  queue: max
+
+jobs:
+  version:
+    if: github.repository == 'yinyanfr/comic-dl-web' && !github.event.created && !github.event.deleted
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.release.outputs.version }}
+      tag: ${{ steps.release.outputs.tag }}
+      prerelease: ${{ steps.release.outputs.prerelease }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .node-version
+          package-manager-cache: false
+      - name: Detect and validate version change
+        id: release
+        env:
+          BEFORE: ${{ github.event.before }}
+        run: node .github/scripts/release-version.mjs
+      - name: Prepare release notes
+        if: steps.release.outputs.version != ''
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+        run: node .github/scripts/release-notes.mjs "$VERSION" > "$RUNNER_TEMP/release-notes.md"
+      - uses: actions/upload-artifact@v7
+        if: steps.release.outputs.version != ''
+        with:
+          name: release-notes
+          path: ${{ runner.temp }}/release-notes.md
+          if-no-files-found: error
+
+  verify:
+    needs: version
+    if: needs.version.outputs.version != ''
+    uses: ./.github/workflows/ci.yml
+    permissions:
+      contents: read
+
+  publish:
+    needs: [version, verify]
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      image: ${{ steps.image.outputs.name }}
+      digest: ${{ steps.build.outputs.digest }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: docker/setup-qemu-action@v4
+      - uses: docker/setup-buildx-action@v4
+      - name: Determine image name
+        id: image
+        shell: bash
+        run: echo "name=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/metadata-action@v6
+        id: meta
+        with:
+          images: ${{ steps.image.outputs.name }}
+          flavor: latest=false
+          tags: |
+            type=raw,value=${{ needs.version.outputs.version }}
+      - uses: docker/build-push-action@v7
+        id: build
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          provenance: mode=max
+          sbom: true
+      - name: Record published image
+        env:
+          IMAGE_NAME: ${{ steps.image.outputs.name }}
+          IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          echo "Image: ${IMAGE_NAME}@${IMAGE_DIGEST}" >> "$GITHUB_STEP_SUMMARY"
+
+  github-release:
+    needs: [version, publish]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: release-notes
+          path: ${{ runner.temp }}
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          VERSION: ${{ needs.version.outputs.version }}
+          TAG: ${{ needs.version.outputs.tag }}
+          PRERELEASE: ${{ needs.version.outputs.prerelease }}
+          IMAGE: ${{ needs.publish.outputs.image }}
+          DIGEST: ${{ needs.publish.outputs.digest }}
+        run: |
+          ref="refs/tags/$TAG"
+          refs=$(git ls-remote "https://github.com/$GH_REPO.git" "$ref" "$ref^{}")
+          tag_commit=$(awk '$2 ~ /\^\{\}$/ { peeled = $1; next } { tag = $1 }
+            END { print peeled ? peeled : tag }' <<< "$refs")
+          if [[ -n "$tag_commit" && "$tag_commit" != "$GITHUB_SHA" ]]; then
+            echo "Tag $TAG points to $tag_commit instead of $GITHUB_SHA." >&2
+            exit 1
+          fi
+          cat >> "$RUNNER_TEMP/release-notes.md" <<EOF
+
+          ### Published container
+
+          - Image: \`${IMAGE}:${VERSION}\`
+          - Multiarchitecture digest: \`${IMAGE}@${DIGEST}\`
+          - Platforms: \`linux/amd64\`, \`linux/arm64\`
+          - Build provenance and SBOM are attached to the image.
+          - Verification: https://github.com/${GH_REPO}/actions/runs/${GITHUB_RUN_ID}
+
+          \`\`\`sh
+          docker pull ${IMAGE}:${VERSION}
+          # Pin this digest for reproducible deployments:
+          docker pull ${IMAGE}@${DIGEST}
+          \`\`\`
+          EOF
+          if draft=$(gh release view "$TAG" --json isDraft --jq .isDraft 2>/dev/null); then
+            if [[ "$draft" == true ]]; then
+              echo "A draft release for $TAG already exists." >&2
+              exit 1
+            fi
+            # A rerun may rebuild the image; keep the recorded digest in sync.
+            gh release edit "$TAG" --notes-file "$RUNNER_TEMP/release-notes.md"
+            exit 0
+          fi
+          args=(release create "$TAG" --target "$GITHUB_SHA" --title "$TAG"
+            --notes-file "$RUNNER_TEMP/release-notes.md")
+          if [[ "$PRERELEASE" == true ]]; then args+=(--prerelease --latest=false); fi
+          gh "${args[@]}"
