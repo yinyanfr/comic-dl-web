@@ -22,12 +22,29 @@ test("主站的三语使用／部署文档有 frontmatter，且应用变量清�
         expect(text, path).toContain("linux/amd64");
         expect(text, path).toContain("linux/arm64");
         expect(text, path).toContain("COMIC_DL_WEB_ADMIN_ORIGIN");
-        expect(text, path).toContain("compose.override.yaml");
+        const example = text
+          .match(/ {3}```yaml\n([\s\S]*?) {3}```/)?.[1]
+          .replace(/^ {3}/gm, "");
+        expect(example, path).toBe(
+          await readFile("docker-compose.yml", "utf8"),
+        );
+        expect(text, path).not.toContain("compose.override.yaml");
+        expect(text, path).not.toContain("docker build");
       }
     }
   }
   expect(deployments[1]).toEqual(deployments[0]);
   expect(deployments[2]).toEqual(deployments[0]);
+});
+
+test("Compose 部署示例独立包含环境变量，不依赖宿主机变量注入", async () => {
+  const compose = await readFile("docker-compose.yml", "utf8");
+  expect(compose).toContain("image: ghcr.io/yinyanfr/comic-dl-web:0.1.0");
+  expect(compose).toContain("environment:");
+  expect(compose).toContain("COMIC_DL_WEB_ADMIN_PASSWORD:");
+  expect(compose).toContain("COMIC_DL_WEB_ADMIN_ORIGIN:");
+  expect(compose).toContain("create_host_path: false");
+  expect(compose).not.toMatch(/\$\{|env_file:|build:/);
 });
 
 test("README 与静态文档的本地链接不指向不存在的文件", async () => {

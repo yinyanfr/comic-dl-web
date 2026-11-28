@@ -1,0 +1,52 @@
+services:
+  comic-dl-web:
+    image: ghcr.io/yinyanfr/comic-dl-web:0.1.0
+    user: "1000:1000"
+    init: true
+    restart: unless-stopped
+    stop_grace_period: 90s
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,size=512m,mode=1777
+    ports:
+      - "127.0.0.1:3000:3000"
+    environment:
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      PORT: "3000"
+      HOME: /tmp
+      COMIC_DL_WEB_OUTPUT: /downloads
+      COMIC_DL_WEB_SHELF: /data/shelf.sqlite
+      COMIC_DL_WEB_SOURCE_STATE: /data/sources.json
+      COMIC_DL_WEB_EXTENSION_DIR: /data/extensions
+      COMIC_DL_WEB_ADMIN_PASSWORD: "replace-with-a-strong-random-password"
+      COMIC_DL_WEB_ENABLE_EXTENSION_MANAGEMENT: "0"
+      COMIC_DL_WEB_WATCH_INTERVAL: "3600"
+      # Optional: uncomment and edit as needed.
+      # COMIC_DL_WEB_ADMIN_ORIGIN: https://comics.example.com
+      # COMIC_DL_WEB_OUTPUT_MARKER: .nas-ready
+      # COMIC_DL_WEB_DEFAULT_SOURCE: copymanga
+      # COMIC_DL_WEB_EXTENSIONS: "@scope/trusted-preinstalled-extension"
+      # COMIC_DL_ZEROBYW_COOKIE: 'replace-with-your-cookie'
+      # COMIC_DL_ZEROBYW_COOKIE_ORIGIN: https://zerobyw.example.com
+      # COMIC_DL_KOMGA_URL: https://komga.example.com
+      # COMIC_DL_KOMGA_API_KEY: 'replace-with-your-api-key'
+      # COMIC_DL_KOMGA_API_KEY_URL: https://komga.example.com
+      # COMIC_DL_KAVITA_URL: https://kavita.example.com
+      # COMIC_DL_KAVITA_API_KEY: 'replace-with-your-api-key'
+      # COMIC_DL_KAVITA_API_KEY_URL: https://kavita.example.com
+    volumes:
+      - type: bind
+        source: /srv/comic-dl-web/data
+        target: /data
+        bind:
+          create_host_path: false
+      - type: bind
+        source: /srv/comics
+        target: /downloads
+        bind:
+          create_host_path: false

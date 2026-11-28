@@ -9,43 +9,81 @@ For UI workflows, see [Usage](usage.md). Deployment files live in the [comic-dl-
 
 ## Artifacts and release status
 
-The repository provides a Dockerfile, Compose file, `.env.example`, and a host-Nginx example. The target registry is `ghcr.io/yinyanfr/comic-dl-web`, with `linux/amd64` and `linux/arm64` images, not ARMv7.
+The published image is `ghcr.io/yinyanfr/comic-dl-web:0.1.0`, supporting `linux/amd64` and `linux/arm64`, not ARMv7. Docker selects the matching architecture automatically. The repository provides a complete [`docker-compose.yml`](https://github.com/yinyanfr/comic-dl-web/blob/main/docker-compose.yml), Dockerfile, and host-Nginx example.
 
-Before publication, build locally from source. Do not assume a version tag exists: check Packages/Releases first. Use an available fixed version or digest in production, not a floating `latest`. This guide does not imply that your NAS, reader, or real sources have been validated.
+Pull the published image directly; no source checkout or local build is needed. Use a fixed version or a digest from the Release, not a floating `latest`. Publication does not imply that your NAS, reader, or real sources have been validated.
 
 ## Docker Compose quick start
 
 Install Docker Engine and the Docker CLI with the Compose plugin. If a NAS GUI cannot preserve `create_host_path: false`, numeric UID/GID, and the stop grace period, use Compose over SSH instead of silently losing these protections.
 
-1. Obtain the chosen repository version and enter its directory. For a local first run:
+1. Create a dedicated deployment directory and save this complete configuration as `docker-compose.yml`. All variables are defined directly in `environment`; **no `.env`, shell-variable injection, or override file is required**:
 
-   ```sh
-   docker build -t comic-dl-web:local .
-   cp .env.example .env
-   chmod 600 .env
+   ```yaml
+   services:
+     comic-dl-web:
+       image: ghcr.io/yinyanfr/comic-dl-web:0.1.0
+       user: "1000:1000"
+       init: true
+       restart: unless-stopped
+       stop_grace_period: 90s
+       read_only: true
+       cap_drop:
+         - ALL
+       security_opt:
+         - no-new-privileges:true
+       tmpfs:
+         - /tmp:rw,nosuid,nodev,size=512m,mode=1777
+       ports:
+         - "127.0.0.1:3000:3000"
+       environment:
+         NODE_ENV: production
+         HOST: 0.0.0.0
+         PORT: "3000"
+         HOME: /tmp
+         COMIC_DL_WEB_OUTPUT: /downloads
+         COMIC_DL_WEB_SHELF: /data/shelf.sqlite
+         COMIC_DL_WEB_SOURCE_STATE: /data/sources.json
+         COMIC_DL_WEB_EXTENSION_DIR: /data/extensions
+         COMIC_DL_WEB_ADMIN_PASSWORD: "replace-with-a-strong-random-password"
+         COMIC_DL_WEB_ENABLE_EXTENSION_MANAGEMENT: "0"
+         COMIC_DL_WEB_WATCH_INTERVAL: "3600"
+         # Optional: uncomment and edit as needed.
+         # COMIC_DL_WEB_ADMIN_ORIGIN: https://comics.example.com
+         # COMIC_DL_WEB_OUTPUT_MARKER: .nas-ready
+         # COMIC_DL_WEB_DEFAULT_SOURCE: copymanga
+         # COMIC_DL_WEB_EXTENSIONS: "@scope/trusted-preinstalled-extension"
+         # COMIC_DL_ZEROBYW_COOKIE: 'replace-with-your-cookie'
+         # COMIC_DL_ZEROBYW_COOKIE_ORIGIN: https://zerobyw.example.com
+         # COMIC_DL_KOMGA_URL: https://komga.example.com
+         # COMIC_DL_KOMGA_API_KEY: 'replace-with-your-api-key'
+         # COMIC_DL_KOMGA_API_KEY_URL: https://komga.example.com
+         # COMIC_DL_KAVITA_URL: https://kavita.example.com
+         # COMIC_DL_KAVITA_API_KEY: 'replace-with-your-api-key'
+         # COMIC_DL_KAVITA_API_KEY_URL: https://kavita.example.com
+       volumes:
+         - type: bind
+           source: /srv/comic-dl-web/data
+           target: /data
+           bind:
+             create_host_path: false
+         - type: bind
+           source: /srv/comics
+           target: /downloads
+           bind:
+             create_host_path: false
    ```
 
-2. Pre-create dedicated data and comic directories, writable by the intended runtime user. Edit `.env`:
+2. Edit the UID/GID in `user` (check with host `id -u` and `id -g`), both host `source` paths, and the administrator password. Pre-create dedicated data and comic directories with write access for that identity. Keep container paths unchanged. Uncomment optional settings as needed; set `COMIC_DL_WEB_ENABLE_EXTENSION_MANAGEMENT` to `"1"` to enable Web management.
 
-   ```dotenv
-   IMAGE=comic-dl-web:local
-   LOCAL_UID=1000
-   LOCAL_GID=1000
-   DATA_DIRECTORY=/srv/comic-dl-web/data
-   DOWNLOAD_DIRECTORY=/srv/comics
-   BIND_ADDRESS=127.0.0.1
-   WEB_PORT=3000
-   COMIC_DL_WEB_ADMIN_PASSWORD='replace-with-a-strong-random-password'
-   COMIC_DL_WEB_ENABLE_EXTENSION_MANAGEMENT=0
-   COMIC_DL_WEB_WATCH_INTERVAL=3600
-   ```
-
-   Replace all paths, IDs, and the password. Use `id -u` and `id -g` on the host. Example paths are not created automatically. For a published image, set `IMAGE` to `ghcr.io/yinyanfr/comic-dl-web:<published-version>` or `ghcr.io/yinyanfr/comic-dl-web@sha256:<digest>`, then run `docker compose pull`. Replace placeholders first.
+   For an existing `compose.yaml`/`.env` deployment, back up and transfer its values into this file, then move old Compose/override files out of the deployment directory so Compose does not prefer old configuration. Keep the existing data and comic directories; do not delete persistent data.
 
 3. Validate and start:
 
    ```sh
+   chmod 600 docker-compose.yml
    docker compose config --quiet
+   docker compose pull
    docker compose up -d
    docker compose ps
    docker compose logs --tail=100 comic-dl-web
@@ -53,7 +91,7 @@ Install Docker Engine and the Docker CLI with the Compose plugin. If a NAS GUI c
 
 4. Open `http://127.0.0.1:3000` on the host. The default loopback binding is not accessible from other devices. An SSH tunnel can provide initial remote administration; use the HTTPS proxy below for regular cross-device access.
 
-Compose requires a nonempty password. The application itself disables authentication when the password is empty/unset. `.env` contains secrets: do not commit it or share unredacted `docker compose config` output.
+Replace the example administrator password; do not leave it empty. The application disables authentication when the password is empty/unset. `docker-compose.yml` contains secrets: do not commit it or share unredacted `docker compose config` output. Escape literal `$` in passwords/cookies as `$$` in Compose files; YAML single quotes do not prevent Compose interpolation.
 
 ### Storage and permissions
 
@@ -69,17 +107,7 @@ Compose refuses missing host bind directories. The root filesystem is read-only;
 
 ### Extra settings and source secrets
 
-The Compose `.env` file supplies substitutions; **it does not automatically pass every variable into the container**. Add extra application variables to `environment` in `compose.override.yaml`, for example:
-
-```yaml
-services:
-  comic-dl-web:
-    environment:
-      COMIC_DL_WEB_ADMIN_ORIGIN: https://comics.example.com
-      COMIC_DL_WEB_OUTPUT_MARKER: .nas-ready
-```
-
-For secrets, use single-quoted values in `.env` and reference `${VARIABLE_NAME}` in the override. Protect both files. Apply changes with `docker compose up -d`; `restart` alone does not update container environment. Never bake credentials into images, Dockerfiles, repositories, or public logs.
+Edit `environment` in the same `docker-compose.yml`: uncomment the Origin, mount marker, or source credentials as needed and replace their example values. Leave unused source settings commented out. Apply changes with `docker compose up -d`; `restart` alone does not update container environment. Protect the file. Never bake credentials into images, Dockerfiles, repositories, or public logs.
 
 Common bundled-source deployment variables:
 
@@ -93,7 +121,7 @@ See the [extension documentation](https://github.com/yinyanfr/comic-dl-extension
 
 ## HTTPS, Origin, and SSE
 
-Use the repository's [Nginx example](https://github.com/yinyanfr/comic-dl-web/blob/main/deploy/nginx.conf), replacing the hostname, upstream port, and trusted certificate paths. Set:
+Use the repository's [Nginx example](https://github.com/yinyanfr/comic-dl-web/blob/main/deploy/nginx.conf), replacing the hostname, upstream port, and trusted certificate paths. Uncomment and set `COMIC_DL_WEB_ADMIN_ORIGIN` in the existing `docker-compose.yml` `environment` section (this is only a field excerpt, not a separate Compose file):
 
 ```yaml
 services:
@@ -117,7 +145,7 @@ Container paths are fixed below; source-run defaults are relative to the working
 | Variable                                   | Source-run default                | Purpose                                                                                                          |
 | ------------------------------------------ | --------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
 | `HOST`                                     | `127.0.0.1`                       | Container uses `0.0.0.0`; host port bindings control exposure.                                                   |
-| `PORT`                                     | `3000`                            | Keep 3000 inside Compose; change `WEB_PORT` for the host.                                                        |
+| `PORT`                                     | `3000`                            | Keep 3000 inside the container; change the middle `3000` in `ports` for the host.                                |
 | `NODE_ENV`                                 | `production` for production start | Do not use test/development in deployment.                                                                       |
 | `COMIC_DL_WEB_ADMIN_PASSWORD`              | Unset                             | Nonempty enables authentication; restart/recreate to change it. Restart invalidates all sessions.                |
 | `COMIC_DL_WEB_ADMIN_ORIGIN`                | Request scheme and Host           | Explicit exact browser Origin behind proxies.                                                                    |
@@ -159,8 +187,8 @@ Compose uses init and allows 90 seconds for SIGTERM cleanup of downloads/watcher
 ## Backup, upgrade, and rollback
 
 1. Stop Web and all CLI writers sharing the shelf/output.
-2. Back up the entire data directory, including SQLite and any WAL/SHM, settings, credentials, and managed packages; Compose/override/`.env`; and comics including hidden identity metadata. Store backups outside the source directories, restrict access, and test restoration.
-3. Set `IMAGE` to the target fixed version/digest, review release notes, then run `docker compose pull` and `docker compose up -d`.
+2. Back up the entire data directory, including SQLite and any WAL/SHM, settings, credentials, and managed packages; `docker-compose.yml`; and comics including hidden identity metadata. Store backups outside the source directories, restrict access, and test restoration.
+3. Change `image` in `docker-compose.yml` to the target fixed version (such as `ghcr.io/yinyanfr/comic-dl-web:0.1.0`) or the Release's `ghcr.io/yinyanfr/comic-dl-web@sha256:…` digest, review release notes, then run `docker compose pull` and `docker compose up -d`.
 4. Verify login, shelf, settings, extensions, following, and an actual archive. Manual queues do not recover; watcher queues do. All sessions are invalidated.
 5. Stop writers again before rollback. If the database schema changed, switching to an old image is insufficient: restore matching old backups. If archives were migrated/written meanwhile, reconcile or restore the corresponding output snapshot without clobbering new files.
 

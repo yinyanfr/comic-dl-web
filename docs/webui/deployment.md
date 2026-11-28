@@ -9,43 +9,81 @@ comic-dl-web 面向单用户、单进程、单实例部署。推荐在 NAS 本�
 
 ## 部署产物与发布状态
 
-提供 Dockerfile、Compose、`.env.example` 和宿主机 Nginx 示例。发布目标为 `ghcr.io/yinyanfr/comic-dl-web`，平台为 `linux/amd64`、`linux/arm64`，不支持 ARMv7。
+已发布镜像 `ghcr.io/yinyanfr/comic-dl-web:0.1.0`，平台为 `linux/amd64`、`linux/arm64`，Docker 自动选择对应架构，不支持 ARMv7。仓库提供完整的 [`docker-compose.yml`](https://github.com/yinyanfr/comic-dl-web/blob/main/docker-compose.yml)、Dockerfile 和宿主机 Nginx 示例。
 
-发布前可从源码构建本地镜像。不要假定某个标签已经存在：先检查仓库 Packages／Release。正式部署使用已发布的固定版本或摘要，不默认跟随 `latest`。本文配置不代表已经完成你的 NAS、阅读器或真实来源验收。
+直接拉取已发布镜像，无需克隆仓库或本地构建。正式部署使用固定版本或 Release 中的摘要，不使用浮动 `latest`。镜像发布不代表已经完成你的 NAS、阅读器或真实来源验收。
 
 ## Docker Compose 快速启动
 
 需要 Docker Engine 和带有 Compose 插件的 Docker CLI。NAS 图形界面若不能表达 `create_host_path: false`、UID/GID 和停止宽限时间，请使用 SSH 运行 Compose，避免静默丢失保护。
 
-1. 获取选定版本的仓库，进入目录。本地首次试用可构建：
+1. 建立专用部署目录，将以下完整配置保存为 `docker-compose.yml`。所有变量直接写在 `environment` 中，**不需要 `.env`、命令行注入或 override 文件**：
 
-   ```sh
-   docker build -t comic-dl-web:local .
-   cp .env.example .env
-   chmod 600 .env
+   ```yaml
+   services:
+     comic-dl-web:
+       image: ghcr.io/yinyanfr/comic-dl-web:0.1.0
+       user: "1000:1000"
+       init: true
+       restart: unless-stopped
+       stop_grace_period: 90s
+       read_only: true
+       cap_drop:
+         - ALL
+       security_opt:
+         - no-new-privileges:true
+       tmpfs:
+         - /tmp:rw,nosuid,nodev,size=512m,mode=1777
+       ports:
+         - "127.0.0.1:3000:3000"
+       environment:
+         NODE_ENV: production
+         HOST: 0.0.0.0
+         PORT: "3000"
+         HOME: /tmp
+         COMIC_DL_WEB_OUTPUT: /downloads
+         COMIC_DL_WEB_SHELF: /data/shelf.sqlite
+         COMIC_DL_WEB_SOURCE_STATE: /data/sources.json
+         COMIC_DL_WEB_EXTENSION_DIR: /data/extensions
+         COMIC_DL_WEB_ADMIN_PASSWORD: "replace-with-a-strong-random-password"
+         COMIC_DL_WEB_ENABLE_EXTENSION_MANAGEMENT: "0"
+         COMIC_DL_WEB_WATCH_INTERVAL: "3600"
+         # Optional: uncomment and edit as needed.
+         # COMIC_DL_WEB_ADMIN_ORIGIN: https://comics.example.com
+         # COMIC_DL_WEB_OUTPUT_MARKER: .nas-ready
+         # COMIC_DL_WEB_DEFAULT_SOURCE: copymanga
+         # COMIC_DL_WEB_EXTENSIONS: "@scope/trusted-preinstalled-extension"
+         # COMIC_DL_ZEROBYW_COOKIE: 'replace-with-your-cookie'
+         # COMIC_DL_ZEROBYW_COOKIE_ORIGIN: https://zerobyw.example.com
+         # COMIC_DL_KOMGA_URL: https://komga.example.com
+         # COMIC_DL_KOMGA_API_KEY: 'replace-with-your-api-key'
+         # COMIC_DL_KOMGA_API_KEY_URL: https://komga.example.com
+         # COMIC_DL_KAVITA_URL: https://kavita.example.com
+         # COMIC_DL_KAVITA_API_KEY: 'replace-with-your-api-key'
+         # COMIC_DL_KAVITA_API_KEY_URL: https://kavita.example.com
+       volumes:
+         - type: bind
+           source: /srv/comic-dl-web/data
+           target: /data
+           bind:
+             create_host_path: false
+         - type: bind
+           source: /srv/comics
+           target: /downloads
+           bind:
+             create_host_path: false
    ```
 
-2. 由部署者提前创建专用数据目录和漫画目录，确定运行用户可写。编辑 `.env`：
+2. 修改 `user` 的 UID/GID（用宿主机 `id -u`、`id -g` 确认）、两个 `source` 宿主机路径及管理员密码。提前创建专用数据目录和漫画目录，并配置运行身份的写权限。容器内路径保持不变。可选配置按需取消注释；网页管理需将 `COMIC_DL_WEB_ENABLE_EXTENSION_MANAGEMENT` 改为 `"1"`。
 
-   ```dotenv
-   IMAGE=comic-dl-web:local
-   LOCAL_UID=1000
-   LOCAL_GID=1000
-   DATA_DIRECTORY=/srv/comic-dl-web/data
-   DOWNLOAD_DIRECTORY=/srv/comics
-   BIND_ADDRESS=127.0.0.1
-   WEB_PORT=3000
-   COMIC_DL_WEB_ADMIN_PASSWORD='replace-with-a-strong-random-password'
-   COMIC_DL_WEB_ENABLE_EXTENSION_MANAGEMENT=0
-   COMIC_DL_WEB_WATCH_INTERVAL=3600
-   ```
-
-   替换所有路径、UID/GID 和密码；用宿主机 `id -u`、`id -g` 确认身份。示例路径不是自动创建的目录。已发布镜像可将 `IMAGE` 改为 `ghcr.io/yinyanfr/comic-dl-web:<已发布版本>` 或 `ghcr.io/yinyanfr/comic-dl-web@sha256:<摘要>`，然后执行 `docker compose pull`；不要把占位符原样运行。
+   已使用旧版 `compose.yaml`／`.env` 的部署，应先备份并将原值迁入新文件，移走部署目录中的旧 Compose／override 文件，避免 Compose 优先读取旧配置；保留原数据和漫画目录，不删除持久数据。
 
 3. 校验并启动：
 
    ```sh
+   chmod 600 docker-compose.yml
    docker compose config --quiet
+   docker compose pull
    docker compose up -d
    docker compose ps
    docker compose logs --tail=100 comic-dl-web
@@ -53,7 +91,7 @@ comic-dl-web 面向单用户、单进程、单实例部署。推荐在 NAS 本�
 
 4. 在宿主机访问 `http://127.0.0.1:3000`。默认只绑定回环地址，其他设备不能直接访问。远程管理可先用 SSH 隧道；正式跨设备访问建议配置下面的 HTTPS 代理。
 
-Compose 要求非空管理员密码；应用本身未设置或为空时不启用认证。`.env` 含密钥，不提交到 Git，也不要分享 `docker compose config` 的完整输出。
+必须替换示例管理员密码，不要留空；应用未设置或为空时不启用认证。`docker-compose.yml` 含密钥，不提交到 Git，也不要分享 `docker compose config` 的完整输出。密码或 Cookie 含 `$` 时，在 Compose 文件中写成 `$$`，避免变量替换；YAML 单引号不能阻止 Compose 的 `$` 替换。
 
 ### 数据与权限
 
@@ -69,17 +107,7 @@ Compose 不会自动创建缺失的宿主机挂载目录。容器根文件系统
 
 ### 额外配置与来源凭据
 
-Compose 的 `.env` 用于变量替换，**并非所有变量都会自动传给容器**。额外设置应写入 `compose.override.yaml` 的 `environment`，例如：
-
-```yaml
-services:
-  comic-dl-web:
-    environment:
-      COMIC_DL_WEB_ADMIN_ORIGIN: https://comics.example.com
-      COMIC_DL_WEB_OUTPUT_MARKER: .nas-ready
-```
-
-机密可在 `.env` 中单引号保存，再在 override 中用 `${变量名}` 引用；保护两个文件。更改后用 `docker compose up -d` 重建生效，单纯 `restart` 不更新容器环境。不要把真实凭据写入镜像、Dockerfile、仓库或公开日志。
+直接编辑同一个 `docker-compose.yml` 的 `environment`，按需取消注释 Origin、挂载标记和来源凭据，替换为实际值；不要启用未使用来源的示例配置。更改后用 `docker compose up -d` 重建生效，单纯 `restart` 不更新容器环境。保护该文件，不要把真实凭据写入镜像、Dockerfile、仓库或公开日志。
 
 内置来源支持的常见部署变量：
 
@@ -93,7 +121,7 @@ services:
 
 ## HTTPS、Origin 与 SSE
 
-使用仓库的 [Nginx 示例](https://github.com/yinyanfr/comic-dl-web/blob/main/deploy/nginx.conf)，替换域名、上游端口及可信证书路径，并设置：
+使用仓库的 [Nginx 示例](https://github.com/yinyanfr/comic-dl-web/blob/main/deploy/nginx.conf)，替换域名、上游端口及可信证书路径。在现有 `docker-compose.yml` 的 `environment` 中取消注释并设置 `COMIC_DL_WEB_ADMIN_ORIGIN`（下面仅展示对应字段，不是另一个 Compose 文件）：
 
 ```yaml
 services:
@@ -117,7 +145,7 @@ PWA 安装要求 HTTPS（localhost／127.0.0.1 除外），普通 HTTP LAN IP �
 | 变量                                       | 源码运行默认值          | 说明                                                             |
 | ------------------------------------------ | ----------------------- | ---------------------------------------------------------------- |
 | `HOST`                                     | `127.0.0.1`             | 容器为 `0.0.0.0`，由宿主机端口映射控制暴露范围。                 |
-| `PORT`                                     | `3000`                  | 容器内部保持 3000；宿主机端口用 Compose 的 `WEB_PORT`。          |
+| `PORT`                                     | `3000`                  | 容器内部保持 3000；宿主机端口修改 `ports` 中间的 `3000`。        |
 | `NODE_ENV`                                 | 生产启动为 `production` | 正式部署不要改为 test／development。                             |
 | `COMIC_DL_WEB_ADMIN_PASSWORD`              | 未设置                  | 非空启用认证；修改须重建／重启，服务重启使登录失效。             |
 | `COMIC_DL_WEB_ADMIN_ORIGIN`                | 请求的协议与 Host       | 代理后显式设置浏览器访问的准确 Origin。                          |
@@ -159,8 +187,8 @@ Compose 使用 init，并给 SIGTERM 留 90 秒清理下载／watcher。长时�
 ## 备份、升级和回退
 
 1. 停止 Web 和所有共享书架／输出的 CLI 写入者。
-2. 备份整个数据目录（SQLite 及仍存在的 WAL／SHM、设置、凭据、托管扩展）、Compose／override／`.env`，以及漫画目录及其隐藏身份文件。备份存放在数据和输出目录之外，限制读取权限，并验证可恢复。
-3. 将 `IMAGE` 改为目标固定版本／摘要，查看版本说明，执行 `docker compose pull`、`docker compose up -d`。
+2. 备份整个数据目录（SQLite 及仍存在的 WAL／SHM、设置、凭据、托管扩展）、`docker-compose.yml`，以及漫画目录及其隐藏身份文件。备份存放在数据和输出目录之外，限制读取权限，并验证可恢复。
+3. 将 `docker-compose.yml` 的 `image` 改为目标固定版本（如 `ghcr.io/yinyanfr/comic-dl-web:0.1.0`）或 Release 中的 `ghcr.io/yinyanfr/comic-dl-web@sha256:…` 摘要，查看版本说明，执行 `docker compose pull`、`docker compose up -d`。
 4. 验证登录、书架、设置、扩展、追更和一个实际归档。手动队列不恢复，追更队列恢复；所有登录失效。
 5. 回退前再次停止写入。若数据库 schema 已升级，不能只换旧镜像，须恢复匹配的旧备份。若期间已迁移／写入归档，也要检查并恢复对应输出快照，避免覆盖新文件。
 

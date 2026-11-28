@@ -37,7 +37,7 @@
 
 ## M4 部署与文档
 
-- [x] 非 root Dockerfile、Compose、`.env.example`、HTTPS/SSE Nginx 示例及本地 HTTP 健康检查。
+- [x] 非 root Dockerfile、包含环境变量的单文件 `docker-compose.yml`、HTTPS/SSE Nginx 示例及本地 HTTP 健康检查。
 - [x] 中英日三语静态 Markdown，使用与部署各一篇；README 链接主站并保留本仓库正文入口。
 - [x] `main` 包版本变化触发 GitHub Release／GHCR 多架构发布，发布前验证锁文件与英文 Changelog 并复用完整 CI，保留固定版本标签与摘要。
 - [x] 本机 arm64 原生和 amd64 模拟构建／容器验收各四项通过，含实际 Compose 启动、离线 npm 管理、持久化和 Nginx HTTPS/SSE；31 项单测、23 项浏览器验收（含可选挂载标记）、检查与构建通过。amd64 原生和远端流程仍待 CI，记录见 [发布清单](docs/release-checklist.md)。

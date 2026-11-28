@@ -3,7 +3,6 @@
 .husky
 .env
 .env.*
-!.env.example
 compose.override.*
 *.key
 *.pem

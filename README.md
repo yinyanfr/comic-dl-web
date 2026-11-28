@@ -47,24 +47,26 @@
 
 ## 快速试用：Docker Compose
 
-需要 Docker Engine 和 Compose 插件。尚未发布的镜像标签不可直接拉取，可先从当前源码构建：
+需要 Docker Engine 和 Compose 插件。直接使用已发布的 `ghcr.io/yinyanfr/comic-dl-web:0.1.0`，无需克隆源码或本地构建。将仓库的 [`docker-compose.yml`](docker-compose.yml) 保存到专用部署目录；[部署指南](docs/webui/deployment.md#docker-compose-快速启动)也提供完整配置。
 
 ```sh
-docker build -t comic-dl-web:local .
-cp .env.example .env
-chmod 600 .env
+mkdir -p comic-dl-web
+cd comic-dl-web
+curl -fsSLO https://raw.githubusercontent.com/yinyanfr/comic-dl-web/main/docker-compose.yml
+chmod 600 docker-compose.yml
 ```
 
-编辑 `.env`：设置**已存在且可写**的数据／漫画目录、NAS 数字 UID/GID 和强随机管理员密码，再运行：
+直接编辑 `docker-compose.yml`：修改 `user` 中的 NAS 数字 UID/GID、`volumes` 中**已存在且可写**的数据／漫画目录，以及 `environment` 中的强随机管理员密码。无需 `.env`、命令行注入变量或 override 文件，再运行：
 
 ```sh
 docker compose config --quiet
+docker compose pull
 docker compose up -d
 ```
 
 默认只在宿主机 `http://127.0.0.1:3000` 监听。跨设备访问、HTTPS／SSE、来源凭据、备份和升级按[部署指南](docs/webui/deployment.md)配置。
 
-镜像发布目标为 `ghcr.io/yinyanfr/comic-dl-web`，支持 `linux/amd64`／`linux/arm64`；确认 Packages 中实际存在目标版本后，将 `IMAGE` 换成固定标签或摘要。不会默认跟随 `latest`。
+镜像支持 `linux/amd64`／`linux/arm64`，Docker 自动选择对应架构。升级时直接修改 `image` 的固定版本标签或摘要，不使用浮动 `latest`。配置含密码，不要提交或分享。
 
 ## 本地开发
 

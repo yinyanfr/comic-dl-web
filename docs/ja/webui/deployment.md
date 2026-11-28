@@ -9,43 +9,81 @@ comic-dl-web は単一ユーザー・単一プロセス・単一インスタン�
 
 ## 配布物と公開状態
 
-Dockerfile、Compose、`.env.example`、ホスト上の Nginx の設定例を提供します。公開先は `ghcr.io/yinyanfr/comic-dl-web`、対象は `linux/amd64` と `linux/arm64` です。ARMv7 は対象外です。
+公開済みイメージは `ghcr.io/yinyanfr/comic-dl-web:0.1.0` です。`linux/amd64` と `linux/arm64` に対応し、Docker が適切なアーキテクチャを自動選択します。ARMv7 は対象外です。完全な [`docker-compose.yml`](https://github.com/yinyanfr/comic-dl-web/blob/main/docker-compose.yml)、Dockerfile、ホスト上の Nginx の設定例を提供します。
 
-公開前はソースからローカルビルドできます。タグの存在を仮定せず、Packages／Release を確認してください。本番では公開済みの固定バージョンやダイジェストを使用し、`latest` を自動追従しません。本書の設定は、実際の NAS、リーダー、配信元で検証済みであることを意味しません。
+公開済みイメージを直接取得でき、ソース取得やローカルビルドは不要です。固定バージョンまたは Release のダイジェストを使用し、浮動 `latest` は使いません。公開済みであっても、実際の NAS、リーダー、配信元で検証済みであることを意味しません。
 
 ## Docker Compose で起動
 
 Docker Engine と Compose プラグイン付き Docker CLI が必要です。NAS の GUI で `create_host_path: false`、数値 UID/GID、停止猶予時間を正しく設定できない場合は、SSH 経由で Compose を使ってください。
 
-1. 使用するバージョンのソースを取得してディレクトリへ移動します。初回のローカルビルド例：
+1. 専用の配置ディレクトリを作り、以下の完全な設定を `docker-compose.yml` として保存します。変数は `environment` に直接記述し、**`.env`、シェル変数の注入、override ファイルは不要**です。
 
-   ```sh
-   docker build -t comic-dl-web:local .
-   cp .env.example .env
-   chmod 600 .env
+   ```yaml
+   services:
+     comic-dl-web:
+       image: ghcr.io/yinyanfr/comic-dl-web:0.1.0
+       user: "1000:1000"
+       init: true
+       restart: unless-stopped
+       stop_grace_period: 90s
+       read_only: true
+       cap_drop:
+         - ALL
+       security_opt:
+         - no-new-privileges:true
+       tmpfs:
+         - /tmp:rw,nosuid,nodev,size=512m,mode=1777
+       ports:
+         - "127.0.0.1:3000:3000"
+       environment:
+         NODE_ENV: production
+         HOST: 0.0.0.0
+         PORT: "3000"
+         HOME: /tmp
+         COMIC_DL_WEB_OUTPUT: /downloads
+         COMIC_DL_WEB_SHELF: /data/shelf.sqlite
+         COMIC_DL_WEB_SOURCE_STATE: /data/sources.json
+         COMIC_DL_WEB_EXTENSION_DIR: /data/extensions
+         COMIC_DL_WEB_ADMIN_PASSWORD: "replace-with-a-strong-random-password"
+         COMIC_DL_WEB_ENABLE_EXTENSION_MANAGEMENT: "0"
+         COMIC_DL_WEB_WATCH_INTERVAL: "3600"
+         # Optional: uncomment and edit as needed.
+         # COMIC_DL_WEB_ADMIN_ORIGIN: https://comics.example.com
+         # COMIC_DL_WEB_OUTPUT_MARKER: .nas-ready
+         # COMIC_DL_WEB_DEFAULT_SOURCE: copymanga
+         # COMIC_DL_WEB_EXTENSIONS: "@scope/trusted-preinstalled-extension"
+         # COMIC_DL_ZEROBYW_COOKIE: 'replace-with-your-cookie'
+         # COMIC_DL_ZEROBYW_COOKIE_ORIGIN: https://zerobyw.example.com
+         # COMIC_DL_KOMGA_URL: https://komga.example.com
+         # COMIC_DL_KOMGA_API_KEY: 'replace-with-your-api-key'
+         # COMIC_DL_KOMGA_API_KEY_URL: https://komga.example.com
+         # COMIC_DL_KAVITA_URL: https://kavita.example.com
+         # COMIC_DL_KAVITA_API_KEY: 'replace-with-your-api-key'
+         # COMIC_DL_KAVITA_API_KEY_URL: https://kavita.example.com
+       volumes:
+         - type: bind
+           source: /srv/comic-dl-web/data
+           target: /data
+           bind:
+             create_host_path: false
+         - type: bind
+           source: /srv/comics
+           target: /downloads
+           bind:
+             create_host_path: false
    ```
 
-2. 専用データ領域と漫画ディレクトリを事前に作り、実行ユーザーの書き込み権限を確認します。`.env` を編集します。
+2. `user` の UID/GID（ホストの `id -u`、`id -g` で確認）、2 つのホスト側 `source` パス、管理者パスワードを変更します。専用データ／漫画ディレクトリを事前に作成し、実行ユーザーに書き込みを許可してください。コンテナ内のパスは変更しません。任意設定は必要に応じてコメントを解除します。Web 管理を使う場合は `COMIC_DL_WEB_ENABLE_EXTENSION_MANAGEMENT` を `"1"` にします。
 
-   ```dotenv
-   IMAGE=comic-dl-web:local
-   LOCAL_UID=1000
-   LOCAL_GID=1000
-   DATA_DIRECTORY=/srv/comic-dl-web/data
-   DOWNLOAD_DIRECTORY=/srv/comics
-   BIND_ADDRESS=127.0.0.1
-   WEB_PORT=3000
-   COMIC_DL_WEB_ADMIN_PASSWORD='replace-with-a-strong-random-password'
-   COMIC_DL_WEB_ENABLE_EXTENSION_MANAGEMENT=0
-   COMIC_DL_WEB_WATCH_INTERVAL=3600
-   ```
-
-   パス、ID、パスワードは必ず置き換えます。ホストの `id -u`、`id -g` で ID を確認してください。例のディレクトリは自動作成されません。公開イメージなら `IMAGE` を `ghcr.io/yinyanfr/comic-dl-web:<公開バージョン>` または `ghcr.io/yinyanfr/comic-dl-web@sha256:<ダイジェスト>` に変更して `docker compose pull` を実行します。プレースホルダーをそのまま使わないでください。
+   既存の `compose.yaml`／`.env` 構成では、まずバックアップして元の値を新ファイルへ移し、古い Compose／override ファイルを配置ディレクトリ外へ移動してください。古い設定が優先されるのを防ぎます。既存のデータ／漫画ディレクトリは維持し、永続データを削除しないでください。
 
 3. 検証して起動します。
 
    ```sh
+   chmod 600 docker-compose.yml
    docker compose config --quiet
+   docker compose pull
    docker compose up -d
    docker compose ps
    docker compose logs --tail=100 comic-dl-web
@@ -53,7 +91,7 @@ Docker Engine と Compose プラグイン付き Docker CLI が必要です。NAS
 
 4. ホストで `http://127.0.0.1:3000` を開きます。既定はループバックのみで、別端末から直接アクセスできません。初期管理には SSH トンネル、継続的な端末間アクセスには以下の HTTPS プロキシを推奨します。
 
-Compose は空でない管理者パスワードを要求します。アプリ単体では未設定／空文字列の場合に認証が無効になります。`.env` を Git に追加せず、秘密情報を展開する `docker compose config` の全出力も共有しないでください。
+管理者パスワードの例は必ず変更し、空にしないでください。未設定／空文字列の場合は認証が無効になります。秘密情報を含む `docker-compose.yml` を Git に追加せず、`docker compose config` の全出力も共有しないでください。パスワードや Cookie に含まれる `$` は Compose ファイル内で `$$` と記述します。YAML の単一引用符では Compose の変数展開を防げません。
 
 ### 保存領域と権限
 
@@ -69,17 +107,7 @@ Compose は存在しないホストの bind ディレクトリを自動作成し
 
 ### 追加設定と配信元の秘密情報
 
-Compose の `.env` は変数展開用で、**全変数が自動的にコンテナへ渡るわけではありません**。追加のアプリ変数は `compose.override.yaml` の `environment` に書きます。
-
-```yaml
-services:
-  comic-dl-web:
-    environment:
-      COMIC_DL_WEB_ADMIN_ORIGIN: https://comics.example.com
-      COMIC_DL_WEB_OUTPUT_MARKER: .nas-ready
-```
-
-秘密情報は `.env` で単一引用符付きの値として保存し、override から `${VARIABLE_NAME}` で参照できます。両ファイルを保護してください。変更は `docker compose up -d` で反映します。`restart` だけでは環境変数を更新しません。認証情報をイメージ、Dockerfile、Git、公開ログに含めないでください。
+同じ `docker-compose.yml` の `environment` を直接編集します。Origin、マーカー、配信元の認証情報は必要な項目だけコメントを解除し、実際の値に置き換えてください。変更は `docker compose up -d` で反映します。`restart` だけでは環境変数を更新しません。ファイルを保護し、認証情報をイメージ、Dockerfile、Git、公開ログに含めないでください。
 
 内蔵配信元の主な変数：
 
@@ -93,7 +121,7 @@ services:
 
 ## HTTPS、Origin、SSE
 
-[Nginx の例](https://github.com/yinyanfr/comic-dl-web/blob/main/deploy/nginx.conf)のホスト名、上流ポート、信頼できる証明書のパスを置き換え、以下も設定します。
+[Nginx の例](https://github.com/yinyanfr/comic-dl-web/blob/main/deploy/nginx.conf)のホスト名、上流ポート、信頼できる証明書のパスを置き換えます。既存の `docker-compose.yml` の `environment` で `COMIC_DL_WEB_ADMIN_ORIGIN` のコメントを解除して設定してください（以下は該当フィールドの抜粋で、別の Compose ファイルではありません）。
 
 ```yaml
 services:
@@ -117,7 +145,7 @@ PWA には HTTPS が必要です（localhost／127.0.0.1 は例外）。通常�
 | 変数                                       | ソース実行時の既定値        | 説明                                                                                            |
 | ------------------------------------------ | --------------------------- | ----------------------------------------------------------------------------------------------- |
 | `HOST`                                     | `127.0.0.1`                 | コンテナは `0.0.0.0`。公開範囲はホストのポート割り当てで制御します。                            |
-| `PORT`                                     | `3000`                      | Compose 内は 3000 のまま、ホスト側は `WEB_PORT` で変更します。                                  |
+| `PORT`                                     | `3000`                      | コンテナ内は 3000 のまま、ホスト側は `ports` の中央の `3000` を変更します。                     |
 | `NODE_ENV`                                 | 本番起動は `production`     | デプロイ時に test／development を使わないでください。                                           |
 | `COMIC_DL_WEB_ADMIN_PASSWORD`              | 未設定                      | 空でない場合に認証有効。変更には再起動／再作成が必要で、全ログインは再起動で無効。              |
 | `COMIC_DL_WEB_ADMIN_ORIGIN`                | リクエストのスキームと Host | プロキシ使用時はブラウザーの正確な Origin を明示。                                              |
@@ -159,8 +187,8 @@ Compose は init を使い、SIGTERM に対してダウンロード／watcher �
 ## バックアップ、更新、ロールバック
 
 1. Web と、本棚／出力を共有するすべての CLI 書き込みを停止します。
-2. データ全体（SQLite、残っている WAL／SHM、設定、認証情報、管理対象拡張）、Compose／override／`.env`、漫画と隠し識別ファイルをバックアップします。元ディレクトリ外に保管し、アクセスを制限して復元も確認してください。
-3. リリース説明を読み、`IMAGE` を対象の固定バージョン／ダイジェストへ変更し、`docker compose pull`、`docker compose up -d` を実行します。
+2. データ全体（SQLite、残っている WAL／SHM、設定、認証情報、管理対象拡張）、`docker-compose.yml`、漫画と隠し識別ファイルをバックアップします。元ディレクトリ外に保管し、アクセスを制限して復元も確認してください。
+3. リリース説明を読み、`docker-compose.yml` の `image` を対象の固定バージョン（例：`ghcr.io/yinyanfr/comic-dl-web:0.1.0`）または Release の `ghcr.io/yinyanfr/comic-dl-web@sha256:…` ダイジェストへ変更し、`docker compose pull`、`docker compose up -d` を実行します。
 4. ログイン、本棚、設定、拡張、自動追跡、実際のアーカイブを検証します。手動キューは復元されず、watcher キューは復元されます。ログインはすべて無効になります。
 5. 戻す前にも書き込みを止めます。DB schema が変わった場合、古いイメージだけでは戻せず、対応する旧バックアップが必要です。その間にアーカイブを移行／作成した場合は、新規ファイルを上書きしないよう出力側のスナップショットも確認・復元します。
 
