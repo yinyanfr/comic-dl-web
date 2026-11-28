@@ -11,6 +11,8 @@ const [{ createRequestHandler }, { default: express }] = await Promise.all([
 const app = express();
 app.disable("x-powered-by");
 const server = createServer(app);
+const { createAuthMiddleware } = await import("./app/auth.server.ts");
+app.use(createAuthMiddleware());
 
 const vite = development ? await startVite() : undefined;
 const { adminOrigin } = await import("./app/downloader.server.ts");

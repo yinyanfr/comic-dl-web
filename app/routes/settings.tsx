@@ -35,6 +35,7 @@ export async function loader({ request, context }: Route.LoaderArgs) {
     library: comics.library(),
     sources: ids,
     writable: extensionManagementEnabled,
+    passwordProtected: Boolean(process.env.COMIC_DL_WEB_ADMIN_PASSWORD),
   };
 }
 
@@ -126,6 +127,21 @@ export default function Settings({ loaderData }: Route.ComponentProps) {
       <Stack gap="lg">
         <Title order={1}>设置</Title>
         <AppearanceSettings />
+        {loaderData.passwordProtected && (
+          <Paper component="section" p="lg" withBorder>
+            <Stack gap="sm">
+              <Title order={2} size="h4">
+                管理员登录
+              </Title>
+              <Text size="sm">已启用密码保护。退出后需要重新输入密码。</Text>
+              <form method="post" action="/auth/logout">
+                <Button type="submit" variant="light">
+                  退出登录
+                </Button>
+              </form>
+            </Stack>
+          </Paper>
+        )}
         {writable && (
           <Button
             component={Link}

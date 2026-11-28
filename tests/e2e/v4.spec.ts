@@ -216,11 +216,13 @@ test("Komga 鉴权封面只通过同站图片接口读取，详情展示元数�
         .filter({ hasText: /^浏览来源$/ })
         .last(),
     ).toBeHidden();
-    expect(
-      await page.evaluate(
-        () => document.documentElement.scrollWidth <= window.innerWidth,
-      ),
-    ).toBe(true);
+    await expect
+      .poll(() =>
+        page.evaluate(
+          () => document.documentElement.scrollWidth <= window.innerWidth,
+        ),
+      )
+      .toBe(true);
     await page.getByRole("button", { name: "切换详细显示" }).click();
     await expect(page.getByText("最近检查：")).toBeVisible();
     const before = coverRequests;

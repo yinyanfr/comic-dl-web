@@ -13,6 +13,22 @@ export function useTaskUpdates(scope: "tasks" | "shelf", page = 1) {
 
   useEffect(() => {
     const events = new EventSource(`/tasks/events?scope=${scope}`);
+    const controller = new AbortController();
+    let checkingAuth = false;
+    events.addEventListener("error", () => {
+      if (checkingAuth || controller.signal.aborted) return;
+      checkingAuth = true;
+      // EventSource hides HTTP status. Probe through fetch so the common auth
+      // handler can distinguish session loss from a temporary network failure.
+      void fetch("/tasks/status", {
+        signal: controller.signal,
+        cache: "no-store",
+      })
+        .catch(() => {})
+        .finally(() => {
+          checkingAuth = false;
+        });
+    });
     let timer: ReturnType<typeof setTimeout> | undefined;
     events.addEventListener(scope, () => {
       timer ??= setTimeout(() => {
@@ -24,6 +40,7 @@ export function useTaskUpdates(scope: "tasks" | "shelf", page = 1) {
     return () => {
       clearTimeout(timer);
       events.close();
+      controller.abort();
     };
   }, [scope]);
 

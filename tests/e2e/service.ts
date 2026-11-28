@@ -45,6 +45,7 @@ export function testServices(directory: string) {
           COMIC_DL_WEB_WATCH_INTERVAL: "1",
           COMIC_DL_WEB_OUTPUT_MARKER: undefined,
           COMIC_DL_WEB_ADMIN_ORIGIN: undefined,
+          COMIC_DL_WEB_ADMIN_PASSWORD: undefined,
           COMIC_DL_WEB_ENABLE_EXTENSION_MANAGEMENT: "0",
           ...environment,
         },

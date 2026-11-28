@@ -33,10 +33,10 @@
   },
   "dependencies": {
     "@comic-dl/copymanga": "^0.3.0",
-    "@comic-dl/dm5": "^0.2.0",
+    "@comic-dl/dm5": "^0.2.1",
     "@comic-dl/kavita": "^0.3.0",
     "@comic-dl/komga": "^0.3.0",
-    "@comic-dl/zerobyw": "^0.3.0",
+    "@comic-dl/zerobyw": "^0.3.1",
     "@mantine/core": "^9.8.2",
     "@mantine/hooks": "^9.8.2",
     "@react-router/express": "^7.18.7",
