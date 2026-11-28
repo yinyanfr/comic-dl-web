@@ -98,11 +98,16 @@ export function createAuthMiddleware({
       .status(status)
       .set({
         "Content-Security-Policy":
-          "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
+          "default-src 'none'; style-src 'unsafe-inline'; img-src 'self'; manifest-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
       })
       .type("html")
       .send(`<!doctype html><html lang="${locale}"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#228be6">
+<meta name="apple-mobile-web-app-title" content="comic-dl-web">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" type="image/png" href="/pwa-icon-192.png">
+<link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
 <title>${t("管理员登录")} · comic-dl-web</title><style>
 :root{color-scheme:light dark;--mantine-primary-color-filled:#228be6;--mantine-radius-md:8px}
 *{box-sizing:border-box}body{margin:0;font:16px/1.55 system-ui,sans-serif;background:light-dark(#f8f9fa,#141517);color:light-dark(#212529,#c1c2c5)}

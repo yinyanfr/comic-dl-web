@@ -11,6 +11,23 @@ const [{ createRequestHandler }, { default: express }] = await Promise.all([
 const app = express();
 app.disable("x-powered-by");
 const server = createServer(app);
+// Only installation metadata and derived branding icons are public. Business
+// pages, source covers and all other assets still pass through authentication.
+app.get(
+  [
+    "/manifest.webmanifest",
+    "/pwa-icon-192.png",
+    "/pwa-icon-512.png",
+    "/apple-touch-icon.png",
+  ],
+  express.static(development ? "public" : "build/client", {
+    fallthrough: false,
+    maxAge: 0,
+    setHeaders: (response) => {
+      response.setHeader("X-Content-Type-Options", "nosniff");
+    },
+  }),
+);
 const { createAuthMiddleware } = await import("./app/auth.server.ts");
 app.use(createAuthMiddleware());
 

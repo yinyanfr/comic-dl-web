@@ -44,6 +44,8 @@ const theme = createTheme({
 
 export const links = () => [
   { rel: "icon", type: "image/png", href: "/comic-icon.png" },
+  { rel: "manifest", href: "/manifest.webmanifest" },
+  { rel: "apple-touch-icon", sizes: "180x180", href: "/apple-touch-icon.png" },
 ];
 
 export function Layout({ children }: { children: React.ReactNode }) {
@@ -53,6 +55,8 @@ export function Layout({ children }: { children: React.ReactNode }) {
       <head>
         <meta charSet="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <meta name="theme-color" content="#228be6" />
+        <meta name="apple-mobile-web-app-title" content="comic-dl-web" />
         <ColorSchemeScript defaultColorScheme="auto" />
         <Meta />
         <Links />

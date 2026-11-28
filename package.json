@@ -41,7 +41,7 @@
     "@mantine/hooks": "^9.8.2",
     "@react-router/express": "^7.18.7",
     "@react-router/node": "^7.18.7",
-    "comic-dl": "^4.0.0",
+    "comic-dl": "^4.1.0",
     "express": "^4.22.3",
     "isbot": "^5.2.4",
     "react": "^19.3.1",
