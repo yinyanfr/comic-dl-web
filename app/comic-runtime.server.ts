@@ -3,20 +3,34 @@ import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import {
   manageExtensions,
+  listManagedExtensions,
+  checkExtensionUpdates,
+  planArchiveMigration,
+  applyArchiveMigration,
+  type ArchiveMigrationItem,
+  type ArchiveMigrationEntry,
   type Downloader,
   type ExtensionAction,
 } from "comic-dl";
 import type { OptionValues } from "comic-dl/extension";
 import { createContext } from "react-router";
 import { z } from "zod";
-import { DownloadQueue } from "./download-queue.server.ts";
+import {
+  DownloadQueue,
+  recentShelfTasks,
+  shelfDownloadTasks,
+} from "./download-queue.server.ts";
+import { readShelfTasks } from "./shelf.server.ts";
 import {
   extensionDirectory,
   defaultLibrarySettings,
   librarySettings,
   outputDirectory,
-  packageName,
+  downloadOptions,
+  outputReady,
+  resolveDownloadInput,
   sourceStateFile,
+  shelfFile,
   usesBundledSource,
   withConfiguredDownloader,
   type ReportLoadError,
@@ -35,7 +49,6 @@ const stateSchema = z.object({
     z.string(),
     z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])),
   ),
-  installed: z.array(packageName).nullable(),
   library: librarySettings.optional(),
   credentials: sourceCredentials.default({}),
 });
@@ -56,8 +69,7 @@ async function readState(): Promise<SourceState> {
       });
     },
   );
-  if (content === null)
-    return stateSchema.parse({ settings: {}, installed: null });
+  if (content === null) return stateSchema.parse({ settings: {} });
   const parsed = z
     .string()
     .transform((text): unknown => {
@@ -96,6 +108,17 @@ export async function createComicRuntime() {
   const shutdown = new AbortController();
   let transition: Promise<unknown> = Promise.resolve();
   let managingPackages = false;
+  let archiveBusy = false;
+  let migration:
+    | {
+        token: string;
+        directory: string;
+        settings: string;
+        created: number;
+        items: ArchiveMigrationItem[];
+      }
+    | undefined;
+  const hiddenShelfTasks = new Map<string, string>();
   const current: WithDownloader = (run, signal, onLoadError) =>
     inspect((downloader) => run(downloader), signal, onLoadError);
   shelfWatcher.start(current);
@@ -115,6 +138,23 @@ export async function createComicRuntime() {
       });
     transition = result;
     return result;
+  }
+
+  async function archiveOperation<T>(run: () => Promise<T>) {
+    if (archiveBusy) throw new Error("Archive operation in progress");
+    archiveBusy = true;
+    downloadQueue.block(true);
+    try {
+      return await change(async () => {
+        if (downloadQueue.busy) throw new Error("Wait for downloads to finish");
+        if (!(await outputReady(library())))
+          throw new Error("Output unavailable");
+        return run();
+      });
+    } finally {
+      archiveBusy = false;
+      downloadQueue.block(false);
+    }
   }
 
   function inspect<T>(
@@ -141,6 +181,125 @@ export async function createComicRuntime() {
   return {
     shelfWatcher,
     downloadQueue,
+    async tasks() {
+      const shelfTasks = shelfWatcher.hasLiveShelf()
+        ? shelfWatcher.tasks()
+        : await readShelfTasks().catch(() => []);
+      const visible = shelfTasks.filter(
+        (task) => hiddenShelfTasks.get(task.id) !== JSON.stringify(task),
+      );
+      return [
+        ...downloadQueue.snapshot(),
+        ...shelfDownloadTasks(recentShelfTasks(visible)),
+      ];
+    },
+    async clearFinished() {
+      downloadQueue.clearFinished();
+      const tasks = shelfWatcher.hasLiveShelf()
+        ? shelfWatcher.tasks()
+        : await readShelfTasks();
+      for (const task of tasks) {
+        if (
+          [
+            "downloaded",
+            "skipped",
+            "failed",
+            "restricted",
+            "cancelled",
+          ].includes(task.state)
+        )
+          hiddenShelfTasks.set(task.id, JSON.stringify(task));
+      }
+      shelfWatcher.notify();
+    },
+    previewMigration(target?: { input: string; source?: string }) {
+      return archiveOperation(async () => {
+        const settings = library();
+        const { directory } = await downloadOptions(settings);
+        const entries = await withDownloader(async (downloader) => {
+          const shelf = await downloader.openShelf({ file: shelfFile });
+          try {
+            const targets = target
+              ? [target]
+              : shelf.list().map((entry) => ({
+                  input: entry.sourceId === "fixture" ? "demo" : entry.input,
+                  source: entry.sourceId,
+                }));
+            const entries: ArchiveMigrationEntry[] = [];
+            const seen = new Set<string>();
+            for (const target of targets) {
+              const { source, locator } = resolveDownloadInput(
+                downloader,
+                target.input,
+                "series",
+                target.source,
+              );
+              const series = await downloader.list(locator, {
+                source,
+                signal: shutdown.signal,
+              });
+              const saved = shelf
+                .list()
+                .find(
+                  (entry) =>
+                    entry.sourceId === source && entry.workId === series.id,
+                );
+              series.chapters.forEach((chapter, index) => {
+                const identity = [source, series.id, chapter.id] as const;
+                if (seen.has(JSON.stringify(identity))) return;
+                seen.add(JSON.stringify(identity));
+                entries.push({
+                  identity,
+                  title: saved?.title ?? series.metadata?.title ?? series.id,
+                  chapter: chapter.title,
+                  number: index + 1,
+                });
+              });
+            }
+            return entries;
+          } finally {
+            shelf.close();
+          }
+        });
+        const items = await planArchiveMigration(
+          directory,
+          entries,
+          settings.archive,
+          shutdown.signal,
+        );
+        const token = randomUUID();
+        migration = {
+          token,
+          directory,
+          settings: JSON.stringify(settings),
+          created: Date.now(),
+          items,
+        };
+        return {
+          token,
+          items: items.map(({ from, to, status }) => ({ from, to, status })),
+        };
+      });
+    },
+    applyMigration(token: string) {
+      return archiveOperation(async () => {
+        const preview = migration;
+        if (
+          !preview ||
+          preview.token !== token ||
+          Date.now() - preview.created > 600_000 ||
+          preview.settings !== JSON.stringify(library()) ||
+          preview.directory !== (await directory())
+        )
+          throw new Error("Preview expired");
+        migration = undefined;
+        await applyArchiveMigration(
+          preview.directory,
+          preview.items,
+          shutdown.signal,
+        );
+      });
+    },
     withDownloader,
     library,
     directory,
@@ -190,7 +349,10 @@ export async function createComicRuntime() {
         state = next;
       });
     },
-    lastManagedPackages: () => state.installed,
+    listPackages: (signal?: AbortSignal) =>
+      listManagedExtensions({ directory: extensionDirectory, signal }),
+    checkUpdates: (name?: string, signal?: AbortSignal) =>
+      checkExtensionUpdates(name, { directory: extensionDirectory, signal }),
     manage(action: ExtensionAction, spec: string | undefined) {
       if (managingPackages) return;
       managingPackages = true;
@@ -202,13 +364,7 @@ export async function createComicRuntime() {
             AbortSignal.timeout(120_000),
           ]),
         });
-        const next = { ...state, installed: [...result.installed].sort() };
-        state = next;
-        const saved = await saveState(next).then(
-          () => true,
-          () => false,
-        );
-        return { changed: result.changed, saved };
+        return { changed: result.changed };
       }).finally(() => {
         managingPackages = false;
       });

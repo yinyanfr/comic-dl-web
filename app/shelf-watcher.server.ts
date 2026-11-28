@@ -1,8 +1,8 @@
-import { writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import type { DownloadTaskSnapshot, ShelfHandle } from "comic-dl";
 import { setTimeout } from "node:timers/promises";
 import {
-  isOutputReady,
+  outputReady as checkOutput,
+  downloadOptions,
   outputDirectory,
   shelfFile,
   watchOptions,
@@ -12,30 +12,6 @@ import {
 
 type WatcherState = "starting" | "running" | "locked" | "stopped";
 
-// The core checks this file before preparing the output directory and again
-// before committing an archive. Creating it never creates the subfolder.
-const subfolderMarker = ".comic-dl-web-output";
-
-async function prepareOutput(folder: string) {
-  const directory = await outputDirectory(folder);
-  if (folder && !(await isOutputReady(directory, subfolderMarker))) {
-    await writeFile(join(directory, subfolderMarker), "", {
-      flag: "wx",
-      mode: 0o600,
-    }).catch((error: unknown) => {
-      if (!(
-        error instanceof Error &&
-        "code" in error &&
-        error.code === "EEXIST"
-      ))
-        throw error;
-    });
-    if (!(await isOutputReady(directory, subfolderMarker)))
-      throw new Error("Invalid watcher output marker");
-  }
-  return directory;
-}
-
 export function createShelfWatcher(library: () => LibrarySettings) {
   const listeners = new Set<() => void>();
   let state: WatcherState = "stopped";
@@ -44,6 +20,8 @@ export function createShelfWatcher(library: () => LibrarySettings) {
   let closed = false;
   let outputReady = true;
   let checkingOutput = false;
+  let liveShelf: ShelfHandle | undefined;
+  let lastTasks: DownloadTaskSnapshot[] = [];
 
   function notify() {
     for (const listener of listeners) listener();
@@ -60,14 +38,7 @@ export function createShelfWatcher(library: () => LibrarySettings) {
     checkingOutput = true;
     try {
       const settings = library();
-      const ready = await prepareOutput(settings.folder)
-        .then((directory) =>
-          isOutputReady(
-            directory,
-            settings.folder ? subfolderMarker : undefined,
-          ),
-        )
-        .catch(() => false);
+      const ready = await checkOutput(settings);
       if (settings === library()) setOutput(ready);
     } finally {
       checkingOutput = false;
@@ -90,6 +61,8 @@ export function createShelfWatcher(library: () => LibrarySettings) {
 
   return {
     snapshot: () => ({ state, outputReady, generation }),
+    tasks: () => liveShelf?.tasks() ?? lastTasks,
+    hasLiveShelf: () => Boolean(liveShelf),
     notify,
     pause,
     start(withDownloader: WithDownloader) {
@@ -103,35 +76,36 @@ export function createShelfWatcher(library: () => LibrarySettings) {
       void refreshOutput();
       const done = withDownloader(
         async (downloader) => {
-          let directory = await prepareOutput(settings.folder).catch(
+          let directory = await outputDirectory(settings.folder).catch(
             () => undefined,
           );
           while (!directory) {
             setOutput(false);
             await setTimeout(1000, undefined, { signal });
-            directory = await prepareOutput(settings.folder).catch(
+            directory = await outputDirectory(settings.folder).catch(
               () => undefined,
             );
           }
           signal.throwIfAborted();
           const shelf = await downloader.openShelf({ file: shelfFile });
+          liveShelf = shelf;
           try {
+            shelf.setDefaultInterval(settings.intervalSeconds);
             const watching = shelf.watch({
-              ...watchOptions,
-              directory,
-              outputMarker: settings.folder
-                ? subfolderMarker
-                : watchOptions.outputMarker,
+              ...(await downloadOptions(settings)),
               intervalSeconds: settings.intervalSeconds,
               signal,
               onCheck: notify,
               onTask: notify,
+              onEvent: notify,
               onOutputUnavailable: () => setOutput(false),
             });
             state = "running";
             notify();
             await watching;
           } finally {
+            lastTasks = shelf.tasks();
+            liveShelf = undefined;
             shelf.close();
           }
         },

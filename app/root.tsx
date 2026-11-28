@@ -1,12 +1,14 @@
 import "@mantine/core/styles.layer.css";
 import {
   ColorSchemeScript,
+  ActionIcon,
   Box,
   Button,
   Container,
   Drawer,
   Group,
   Image,
+  Indicator,
   MantineProvider,
   createTheme,
   mantineHtmlProps,
@@ -25,6 +27,7 @@ import {
 } from "react-router";
 import { comicsContext } from "./comic-runtime.server";
 import { DownloadTasks } from "./download-tasks";
+import { Icon, type IconName } from "./icons";
 import { useTaskUpdates } from "./use-task-updates";
 import type { Route } from "./+types/root";
 import styles from "./routes/home.module.css";
@@ -59,8 +62,8 @@ export function Layout({ children }: { children: React.ReactNode }) {
   );
 }
 
-export function loader({ context }: Route.LoaderArgs) {
-  return { tasks: context.get(comicsContext).downloadQueue.snapshot() };
+export async function loader({ context }: Route.LoaderArgs) {
+  return { tasks: await context.get(comicsContext).tasks() };
 }
 
 function ThemeToggle() {
@@ -69,17 +72,20 @@ function ThemeToggle() {
     getInitialValueInEffect: true,
   });
   return (
-    <Button
+    <ActionIcon
+      size={36}
       variant="subtle"
+      aria-label={colorScheme === "dark" ? "日间模式" : "夜间模式"}
+      title={colorScheme === "dark" ? "日间模式" : "夜间模式"}
       onClick={() => setColorScheme(colorScheme === "dark" ? "light" : "dark")}
     >
       <Box component="span" darkHidden>
-        夜间模式
+        <Icon name="moon" />
       </Box>
       <Box component="span" lightHidden>
-        日间模式
+        <Icon name="sun" />
       </Box>
-    </Button>
+    </ActionIcon>
   );
 }
 
@@ -95,44 +101,75 @@ export default function App({ loaderData }: Route.ComponentProps) {
     <>
       <header className={styles.header}>
         <Container size="lg">
-          <Group justify="space-between" gap="xs">
+          <Group
+            justify="space-between"
+            gap="xs"
+            wrap="nowrap"
+            className={styles.headerRow}
+          >
             <Link to="/" aria-label="comic-dl-web 首页">
-              <Image src="/comic-icon.png" alt="" w={40} h={40} />
+              <Image
+                src="/comic-icon.png"
+                alt=""
+                className={styles.brandIcon}
+              />
             </Link>
-            <Group component="nav" aria-label="主导航" gap={4}>
-              <Button component={NavLink} to="/" end variant="subtle">
-                书架
-              </Button>
-              <Button component={NavLink} to="/catalog" variant="subtle">
-                浏览来源
-              </Button>
-              <Button component={NavLink} to="/extensions" variant="subtle">
-                扩展市场
-              </Button>
-              <Button component={NavLink} to="/downloads" variant="subtle">
-                手动下载
-              </Button>
-              <Button component={NavLink} to="/settings" variant="subtle">
-                设置
-              </Button>
+            <Group
+              component="nav"
+              aria-label="主导航"
+              gap={4}
+              wrap="nowrap"
+              className={styles.navigation}
+            >
+              {(
+                [
+                  ["/", "书架", "shelf"],
+                  ["/catalog", "浏览来源", "search"],
+                  ["/extensions", "扩展市场", "extensions"],
+                  ["/downloads", "手动下载", "download"],
+                  ["/settings", "设置", "settings"],
+                ] satisfies [string, string, IconName][]
+              ).map(([to, label, icon]) => (
+                <Button
+                  key={to}
+                  component={NavLink}
+                  to={to}
+                  end={to === "/"}
+                  variant="subtle"
+                  aria-label={label}
+                  title={label}
+                  className={styles.navButton}
+                >
+                  <span className={styles.navIcon}>
+                    <Icon name={icon} />
+                  </span>
+                  <span className={styles.navLabel}>{label}</span>
+                </Button>
+              ))}
             </Group>
-            <Group gap={4} aria-label="快捷操作">
-              <Button
-                variant="light"
-                onClick={drawer.open}
-                aria-haspopup="dialog"
-              >
-                下载{active > 0 ? ` (${active})` : ""}
-              </Button>
+            <Group gap={4} aria-label="快捷操作" wrap="nowrap">
+              <Indicator disabled={active === 0} label={active} size={16}>
+                <ActionIcon
+                  size={36}
+                  variant="light"
+                  onClick={drawer.open}
+                  aria-haspopup="dialog"
+                  aria-label={active > 0 ? `下载 (${active})` : "下载"}
+                  title="下载管理"
+                >
+                  <Icon name="download" />
+                </ActionIcon>
+              </Indicator>
               <ThemeToggle />
-              <Button
+              <ActionIcon
+                size={36}
                 variant="subtle"
                 disabled
                 title="多语言支持待加入"
                 aria-label="语言（暂未开放）"
               >
-                语言
-              </Button>
+                <Icon name="language" />
+              </ActionIcon>
             </Group>
           </Group>
         </Container>

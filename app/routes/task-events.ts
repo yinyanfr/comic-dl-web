@@ -25,9 +25,12 @@ export function loader({ request, context, url }: Route.LoaderArgs) {
         pending = true;
         flush(controller);
       };
-      const unsubscribe = forShelf
-        ? comics.shelfWatcher.subscribe(publish)
-        : comics.downloadQueue.subscribe(publish);
+      const unsubscribers = forShelf
+        ? [comics.shelfWatcher.subscribe(publish)]
+        : [
+            comics.downloadQueue.subscribe(publish),
+            comics.shelfWatcher.subscribe(publish),
+          ];
       const interval = setInterval(() => {
         if ((controller.desiredSize ?? 0) > 0) controller.enqueue(heartbeat);
       }, 15_000);
@@ -36,7 +39,7 @@ export function loader({ request, context, url }: Route.LoaderArgs) {
         controller.close();
       };
       cleanup = () => {
-        unsubscribe();
+        for (const unsubscribe of unsubscribers) unsubscribe();
         clearInterval(interval);
         request.signal.removeEventListener("abort", abort);
       };

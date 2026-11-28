@@ -1,14 +1,6 @@
 import { execFile } from "node:child_process";
 import { constants } from "node:fs";
-import {
-  cp,
-  mkdir,
-  open,
-  readdir,
-  readFile,
-  unlink,
-  writeFile,
-} from "node:fs/promises";
+import { cp, mkdir, open, readFile, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { expect, test, type Page } from "@playwright/test";
@@ -18,6 +10,7 @@ import {
   fixtureDirectory,
   fixtureURL,
 } from "../../playwright.config";
+import { archiveFiles } from "./service";
 
 test.use({ baseURL: fixtureURL });
 
@@ -36,9 +29,7 @@ async function listChapters(page: Page) {
 }
 
 async function archives() {
-  return (await readdir(archiveDirectory)).filter((name) =>
-    name.endsWith(".cbz"),
-  );
+  return archiveFiles(archiveDirectory);
 }
 
 test("关闭页面后生成 CBZ，刷新可见结果，重跑会跳过已有章节", async ({
@@ -86,6 +77,12 @@ test("关闭页面后生成 CBZ，刷新可见结果，重跑会跳过已有章�
   await page.getByRole("button", { name: "提交下载" }).click();
   await expect(latestTask(page).getByText("下载中")).toBeVisible();
   await expect(
+    latestTask(page).getByText("已下载 0 页", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    latestTask(page).getByRole("progressbar", { name: "章节页数进度" }),
+  ).toHaveCount(0);
+  await expect(
     latestTask(page)
       .getByRole("region", { name: "待处理章节" })
       .getByText("1-开篇"),
@@ -93,6 +90,12 @@ test("关闭页面后生成 CBZ，刷新可见结果，重跑会跳过已有章�
   await expect.poll(archives).toHaveLength(0);
 
   await page.getByRole("button", { name: "下载章节直链" }).click();
+  await expect(latestTask(page).getByText("排队中")).toBeVisible();
+  await latestTask(page).getByRole("button", { name: "取消任务" }).click();
+  await expect(latestTask(page).getByText("已取消")).toBeVisible();
+  await latestTask(page)
+    .getByRole("button", { name: "重试失败或取消章节" })
+    .click();
   await expect(latestTask(page).getByText("排队中")).toBeVisible();
   await latestTask(page).getByRole("button", { name: "取消任务" }).click();
   await expect(latestTask(page).getByText("已取消")).toBeVisible();
@@ -151,7 +154,7 @@ test("关闭页面后生成 CBZ，刷新可见结果，重跑会跳过已有章�
   await reopened.getByLabel("章节范围（可选）").fill("2-4");
   await reopened.getByRole("button", { name: "提交下载" }).click();
   const result = latestTask(reopened);
-  await expect(result.getByText("已结束")).toBeVisible();
+  await expect(result.getByText("任务失败", { exact: true })).toBeVisible();
   await expect(
     result.getByRole("listitem").filter({ hasText: "1-开篇" }),
   ).toContainText("跳过");
@@ -225,7 +228,7 @@ test("关闭页面后生成 CBZ，刷新可见结果，重跑会跳过已有章�
     drawer.getByRole("heading", { name: "demo", exact: true }),
   ).toBeVisible();
   const backfill = latestTask(reopened);
-  await expect(backfill.getByText("已结束")).toBeVisible();
+  await expect(backfill.getByText("任务失败", { exact: true })).toBeVisible();
   await expect(
     backfill.getByRole("listitem").filter({ hasText: "5-开篇" }),
   ).toContainText("跳过");

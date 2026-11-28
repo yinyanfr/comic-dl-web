@@ -167,7 +167,7 @@ export function DownloadTasks({
         )}
       </Group>
       <Text size="sm" c="dimmed" mb="md">
-        关闭页面后，下载仍会在服务端继续。
+        关闭页面后，下载仍会在服务端继续。默认只展示有限的最近章节记录，手动任务完整结果可分页查看。
       </Text>
       {cancel.state === "idle" && cancel.data?.error && (
         <Alert color="red" role="alert" mb="md">
@@ -207,6 +207,7 @@ export function DownloadTasks({
                 >
                   <Group justify="space-between" gap="xs" mb={4}>
                     <Text size="sm" fw={600}>
+                      {task.origin === "shelf" ? "追更" : "手动"} ·{" "}
                       {task.source} ·{" "}
                       {task.kind === "series" ? "作品章节" : "单章"}
                     </Text>
@@ -239,6 +240,47 @@ export function DownloadTasks({
                     </Text>
                   )}
                   {task.resultCount > 0 && <ChapterResults task={task} />}
+                  {task.chapters?.map((chapter) => (
+                    <Stack gap={4} key={chapter.id} mt="xs">
+                      <Text size="sm">
+                        {chapter.number === undefined
+                          ? chapter.chapterTitle
+                          : `${chapter.number}-${chapter.chapterTitle}`}{" "}
+                        ·{" "}
+                        {
+                          {
+                            queued: "排队中",
+                            retry: "等待重试",
+                            starting: "开始下载",
+                            reading: "下载图片",
+                            archiving: "写入归档",
+                            downloaded: "已下载",
+                            skipped: "已存在",
+                            failed: "失败",
+                            restricted: "受限",
+                            cancelled: "已取消",
+                          }[chapter.state]
+                        }
+                      </Text>
+                      <Text size="xs" c="dimmed">
+                        已下载 {chapter.pagesDownloaded}
+                        {chapter.totalPages === undefined
+                          ? " 页"
+                          : ` / ${chapter.totalPages} 页`}
+                      </Text>
+                      {chapter.totalPages !== undefined &&
+                        chapter.totalPages > 0 && (
+                          <Progress
+                            aria-label="章节页数进度"
+                            value={
+                              (100 * chapter.pagesDownloaded) /
+                              chapter.totalPages
+                            }
+                            size="sm"
+                          />
+                        )}
+                    </Stack>
+                  ))}
                   {Boolean(task.remaining?.length) && (
                     <Stack
                       gap={4}
@@ -259,9 +301,28 @@ export function DownloadTasks({
                     </Stack>
                   )}
                   {(task.status === "queued" || task.status === "running") && (
-                    <cancel.Form method="post" action="/downloads">
-                      <input type="hidden" name="intent" value="cancel" />
+                    <cancel.Form
+                      method="post"
+                      action={task.origin === "shelf" ? "/shelf" : "/downloads"}
+                    >
+                      <input
+                        type="hidden"
+                        name="intent"
+                        value={
+                          task.origin === "shelf" ? "cancel-chapter" : "cancel"
+                        }
+                      />
                       <input type="hidden" name="taskId" value={task.id} />
+                      <input
+                        type="hidden"
+                        name="entryId"
+                        value={task.entryId ?? ""}
+                      />
+                      <input
+                        type="hidden"
+                        name="chapterId"
+                        value={task.chapters?.[0]?.chapterId ?? ""}
+                      />
                       <Button
                         type="submit"
                         size="compact-xs"
@@ -274,6 +335,45 @@ export function DownloadTasks({
                       </Button>
                     </cancel.Form>
                   )}
+                  {(task.retryable ??
+                    task.chapters?.some((chapter) => chapter.retryable)) &&
+                    !["queued", "running", "cancelling"].includes(
+                      task.status,
+                    ) && (
+                      <cancel.Form
+                        method="post"
+                        action={
+                          task.origin === "shelf" ? "/shelf" : "/downloads"
+                        }
+                      >
+                        <input
+                          type="hidden"
+                          name="intent"
+                          value={
+                            task.origin === "shelf" ? "retry" : "retry-task"
+                          }
+                        />
+                        <input type="hidden" name="taskId" value={task.id} />
+                        <input
+                          type="hidden"
+                          name="entryId"
+                          value={task.entryId ?? ""}
+                        />
+                        <input
+                          type="hidden"
+                          name="chapterId"
+                          value={task.chapters?.[0]?.chapterId ?? ""}
+                        />
+                        <Button
+                          type="submit"
+                          size="compact-xs"
+                          variant="light"
+                          disabled={cancel.state !== "idle"}
+                        >
+                          重试失败或取消章节
+                        </Button>
+                      </cancel.Form>
+                    )}
                 </Paper>
               );
             })}

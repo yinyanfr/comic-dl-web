@@ -12,6 +12,32 @@
   background: var(--mantine-primary-color-light);
 }
 
+.navIcon {
+  display: none;
+}
+
+.brandIcon {
+  width: 40px;
+  height: 40px;
+}
+
+.shelfCover {
+  display: block;
+  width: 112px;
+  overflow: hidden;
+  border-radius: var(--mantine-radius-sm);
+}
+
+.compactCard {
+  overflow: hidden;
+  min-width: 0;
+}
+
+.compactTitle {
+  min-height: 2.9em;
+  overflow-wrap: anywhere;
+}
+
 .extensionFields {
   display: flex;
   flex-direction: column;
@@ -123,6 +149,37 @@
 }
 
 @media (max-width: 48em) {
+  .header > div {
+    padding-inline: 8px;
+  }
+
+  .headerRow {
+    gap: 4px;
+  }
+
+  .brandIcon {
+    width: 28px;
+    height: 28px;
+  }
+
+  .navigation {
+    gap: 0;
+  }
+
+  .navButton {
+    padding-inline: 0;
+    width: 30px;
+    height: 36px;
+  }
+
+  .navIcon {
+    display: inline-flex;
+  }
+
+  .navLabel {
+    display: none;
+  }
+
   .workspace {
     grid-template-columns: minmax(0, 1fr);
   }

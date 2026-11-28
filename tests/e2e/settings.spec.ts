@@ -1,9 +1,9 @@
 import { once } from "node:events";
-import { mkdir, readdir, stat } from "node:fs/promises";
+import { mkdir, stat } from "node:fs/promises";
 import { createServer } from "node:http";
 import { join } from "node:path";
 import { expect, test } from "@playwright/test";
-import { testServices } from "./service";
+import { archiveFiles, testServices } from "./service";
 
 test("外观、下载位置和来源凭证从网页保存，重启后仍可用", async ({
   page,
@@ -113,11 +113,7 @@ test("外观、下载位置和来源凭证从网页保存，重启后仍可用",
     await page.getByRole("button", { name: "查看章节" }).click();
     await page.getByRole("button", { name: "下载全部章节" }).click();
     await expect
-      .poll(
-        async () =>
-          (await readdir(output)).filter((name) => name.endsWith(".cbz"))
-            .length,
-      )
+      .poll(async () => (await archiveFiles(output)).length)
       .toBeGreaterThan(0);
   } finally {
     await services.stopServers();

@@ -5,8 +5,12 @@ import {
   fixtureDirectory,
   resolveDownloadInput,
   shelfFile,
-} from "./downloader.server";
-import { reusableWebUrl, sourceInput, workInput } from "./source-input.server";
+} from "./downloader.server.ts";
+import {
+  reusableWebUrl,
+  sourceInput,
+  workInput,
+} from "./source-input.server.ts";
 import type { ComicRuntime } from "./comic-runtime.server";
 
 interface ShelfActionData {
@@ -51,6 +55,10 @@ async function withShelf<T>(
   }
 }
 
+export function readShelfTasks() {
+  return withShelf((shelf) => shelf.tasks());
+}
+
 export async function readShelf(requestedPage: number) {
   return withShelf((shelf) => {
     const all = shelf.list();
@@ -62,32 +70,50 @@ export async function readShelf(requestedPage: number) {
     );
     const entries = all
       .slice((page - 1) * pageSize, page * pageSize)
-      .map(({ id, sourceId, input, title, following }) => {
-        const status = statuses.get(id);
-        return {
+      .map(
+        ({
           id,
           sourceId,
-          input: publicInput(sourceId, input),
+          input,
           title,
-          following: Boolean(following),
-          status: status && {
-            lastCheck: status.lastCheck,
-            lastSuccess: status.lastSuccess,
-            result: status.result,
-            pending: status.pending,
-            complete: status.complete,
-          },
-          attention:
-            status && (status.restricted || status.blocked)
-              ? shelf.needsAttention(id)
-              : [],
-        };
-      });
+          following,
+          autoCheck,
+          autoDownload,
+          intervalSeconds,
+        }) => {
+          const status = statuses.get(id);
+          return {
+            id,
+            sourceId,
+            input: publicInput(sourceId, input),
+            title,
+            following: Boolean(following),
+            autoCheck: Boolean(autoCheck),
+            autoDownload: Boolean(autoDownload),
+            intervalSeconds,
+            chapters: shelf.chapters(id),
+            status: status && {
+              lastCheck: status.lastCheck,
+              lastSuccess: status.lastSuccess,
+              result: status.result,
+              pending: status.pending,
+              complete: status.complete,
+              nextCheck: status.nextCheck,
+              intervalSeconds: status.intervalSeconds,
+              discovered: status.discovered,
+            },
+            attention:
+              status && (status.restricted || status.blocked)
+                ? shelf.needsAttention(id)
+                : [],
+          };
+        },
+      );
     return {
       entries,
       page,
       pages,
-      hasSubscriptions: all.some(({ following }) => following),
+      hasSubscriptions: all.length > 0,
     };
   });
 }
@@ -105,9 +131,19 @@ const entryAction = z.discriminatedUnion("intent", [
   z.object({ intent: z.literal("check-all") }),
   z.object({ intent: z.literal("edit"), entryId: z.uuid(), input: workInput }),
   z.object({
-    intent: z.literal("retry"),
+    intent: z.enum(["retry", "enqueue", "cancel-chapter"]),
     entryId: z.uuid(),
     chapterId: z.string().min(1),
+  }),
+  z.object({
+    intent: z.literal("configure"),
+    entryId: z.uuid(),
+    autoCheck: z.enum(["on", "off"]),
+    autoDownload: z.enum(["on", "off"]),
+    intervalSeconds: z.union([
+      z.literal(""),
+      z.coerce.number().int().min(1).max(31_536_000),
+    ]),
   }),
 ]);
 
@@ -231,6 +267,20 @@ export async function handleShelfAction(
           return true;
         case "retry":
           return shelf.retry(operation.entryId, operation.chapterId);
+        case "enqueue":
+          return shelf.enqueue(operation.entryId, operation.chapterId);
+        case "cancel-chapter":
+          return shelf.cancel(operation.entryId, operation.chapterId);
+        case "configure":
+          shelf.configure(operation.entryId, {
+            autoCheck: operation.autoCheck === "on",
+            autoDownload: operation.autoDownload === "on",
+            intervalSeconds:
+              operation.intervalSeconds === ""
+                ? null
+                : operation.intervalSeconds,
+          });
+          return true;
       }
     });
     if (!changed)

@@ -1,5 +1,6 @@
 import { data } from "react-router";
 import { z } from "zod";
+import type { ExtensionUpdate } from "comic-dl";
 import type { ComicRuntime } from "./comic-runtime.server";
 import {
   isAdminRequest,
@@ -28,8 +29,17 @@ const operation = z.discriminatedUnion("intent", [
     version: z.union([z.literal(""), version]),
     trust: z.literal("yes"),
   }),
-  z.object({ intent: z.enum(["update", "remove"]), name: packageName }),
-  z.object({ intent: z.literal("update-all") }),
+  z.object({
+    intent: z.literal("update"),
+    name: packageName,
+    confirm: z.literal("yes"),
+  }),
+  z.object({ intent: z.literal("remove"), name: packageName }),
+  z.object({ intent: z.literal("update-all"), confirm: z.literal("yes") }),
+  z.object({
+    intent: z.literal("check-updates"),
+    name: packageName.optional(),
+  }),
   z.object({ intent: z.enum(["settings", "reset"]), source: sourceId }),
   z.object({
     intent: z.literal("save-credential"),
@@ -42,7 +52,11 @@ const operation = z.discriminatedUnion("intent", [
     source: credentialSources,
   }),
 ]);
-const respond = data<{ message?: string; error?: string }>;
+const respond = data<{
+  message?: string;
+  error?: string;
+  updates?: ExtensionUpdate[];
+}>;
 
 function loadIssue(cause: unknown) {
   const message = cause instanceof Error ? cause.message : "";
@@ -65,9 +79,13 @@ export async function loadExtensions(
   signal: AbortSignal,
 ) {
   const issues: string[] = [];
+  const packages = await comics.listPackages(signal).catch(() => {
+    issues.push("无法读取托管扩展清单。");
+    return [];
+  });
   const snapshot = await comics
     .inspect(
-      async (downloader, { settings, installed, credentials }) => {
+      async (downloader, { settings, credentials }) => {
         const sources = downloader.sources().map((id) => {
           const saved = Object.hasOwn(settings, id) ? settings[id] : {};
           const options = Object.entries(downloader.sourceSettings(id)).map(
@@ -127,7 +145,7 @@ export async function loadExtensions(
               } as const),
           };
         });
-        return { sources, installed };
+        return { sources };
       },
       signal,
       (cause) => {
@@ -136,10 +154,12 @@ export async function loadExtensions(
     )
     .catch(() => {
       issues.push("无法读取扩展配置或托管目录。");
-      return { sources: [], installed: comics.lastManagedPackages() };
+      return { sources: [] };
     });
   return {
     ...snapshot,
+    installed: packages.map((item) => item.package),
+    packages,
     issues: [...new Set(issues)],
     deploymentPackages,
     writable: extensionManagementEnabled,
@@ -170,6 +190,16 @@ export async function handleExtensionAction(
   let failedMessage =
     "扩展操作失败。请确认包名、版本、npm 仓库及来源兼容性。下方显示当前加载结果。";
   try {
+    if (intent === "check-updates") {
+      const updates = await comics.checkUpdates(
+        command.name,
+        AbortSignal.any([request.signal, AbortSignal.timeout(60_000)]),
+      );
+      return respond({
+        updates,
+        message: "更新检查完成，尚未安装或切换版本。",
+      });
+    }
     if (intent === "save-credential" || intent === "clear-credential") {
       failedMessage = "无法保存凭证。请确认来源地址、凭证格式和服务端存储。";
       const value =
@@ -221,11 +251,6 @@ export async function handleExtensionAction(
         { error: "已有扩展操作正在执行，请等待完成。" },
         { status: 409 },
       );
-    }
-    if (!result.saved) {
-      return respond({
-        message: "扩展操作已完成，但无法保存包清单；请检查 Web 配置目录。",
-      });
     }
     return respond({
       message: result.changed ? "扩展操作已完成。" : "没有需要变更的扩展。",

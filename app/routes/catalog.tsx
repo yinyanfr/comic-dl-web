@@ -5,7 +5,6 @@ import {
   Container,
   Group,
   NativeSelect,
-  Image,
   Paper,
   SimpleGrid,
   Stack,
@@ -16,6 +15,7 @@ import {
 import { Form, Link, useLocation, useNavigation } from "react-router";
 import { loadCatalog, type CatalogWork } from "../catalog.server";
 import { comicsContext } from "../comic-runtime.server";
+import { Cover } from "../cover";
 import { extensionCatalog } from "../extension-catalog";
 import { OptionField } from "../option-field";
 import type { Route } from "./+types/catalog";
@@ -52,20 +52,7 @@ function WorkGrid({
             to={`/work?${new URLSearchParams({ source, input, title })}`}
             state={{ catalog: `/catalog${search}` }}
           >
-            <div className={styles.cover} aria-hidden="true">
-              <span>暂无封面</span>
-              {coverUrl && (
-                <Image
-                  src={coverUrl}
-                  alt=""
-                  loading="lazy"
-                  referrerPolicy="no-referrer"
-                  onError={({ currentTarget }) => {
-                    currentTarget.hidden = true;
-                  }}
-                />
-              )}
-            </div>
+            <Cover src={coverUrl} />
             <Title order={3} size="h6" p="xs">
               {title}
             </Title>

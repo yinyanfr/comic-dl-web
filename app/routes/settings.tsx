@@ -19,7 +19,6 @@ import {
   isAdminRequest,
   librarySettings,
   readSources,
-  watchOptions,
 } from "../downloader.server";
 import { extensionCatalog } from "../extension-catalog";
 import type { Route } from "./+types/settings";
@@ -36,7 +35,6 @@ export async function loader({ request, context }: Route.LoaderArgs) {
     library: comics.library(),
     sources: ids,
     writable: extensionManagementEnabled,
-    hasOutputMarker: Boolean(watchOptions.outputMarker),
   };
 }
 
@@ -58,16 +56,16 @@ export async function action({ context, request }: Route.ActionArgs) {
         folder: form.get("folder"),
         intervalSeconds: form.get("intervalSeconds"),
         defaultSource: form.get("defaultSource") || undefined,
+        archive: {
+          template: form.get("template"),
+          padding: form.get("padding"),
+          format: form.get("format"),
+        },
       });
       if (!settings.success)
         return respond(
           { error: "请检查子目录、检查间隔和默认来源。" },
           { status: 400 },
-        );
-      if (settings.data.folder && watchOptions.outputMarker)
-        return respond(
-          { error: "已启用挂载标记，下载子目录必须留空。" },
-          { status: 422 },
         );
       await comics.saveLibrary(settings.data);
     } else {
@@ -115,7 +113,7 @@ function AppearanceSettings() {
 }
 
 export default function Settings({ loaderData }: Route.ComponentProps) {
-  const { library, sources, writable, hasOutputMarker } = loaderData;
+  const { library, sources, writable } = loaderData;
   const save = useFetcher<typeof action>();
   const choices = [
     ...new Set([
@@ -128,6 +126,15 @@ export default function Settings({ loaderData }: Route.ComponentProps) {
       <Stack gap="lg">
         <Title order={1}>设置</Title>
         <AppearanceSettings />
+        {writable && (
+          <Button
+            component={Link}
+            to="/settings/archive-migration"
+            variant="light"
+          >
+            预览与迁移已有归档
+          </Button>
+        )}
         <Paper component="section" p="lg" withBorder>
           <Stack gap="sm">
             <Title order={2} size="h4">
@@ -144,23 +151,45 @@ export default function Settings({ loaderData }: Route.ComponentProps) {
                   label="下载子目录"
                   name="folder"
                   defaultValue={library.folder}
-                  description={
-                    hasOutputMarker
-                      ? "部署者已启用挂载标记，只能使用下载根目录。请将子目录留空。"
-                      : "已存在的相对路径，例如 Manga/新作。留空则写入部署者配置的下载根目录。"
-                  }
+                  description="输出根下已存在的相对目录，例如 Manga/新作。挂载标记始终在部署者配置的根目录检查。"
                   maxLength={512}
                   disabled={!writable}
                 />
                 <TextInput
                   label="追更间隔（秒）"
-                  description="已有追更作品会保留已排定的检查时间；下次成功的自动检查后使用新间隔。也可在书架手动检查，让追更服务提前检查。"
+                  description="保存后重新计算使用全局间隔的作品检查时间，不清除基线；作品级间隔可在书架覆盖。"
                   name="intervalSeconds"
                   type="number"
                   min={1}
                   max={31_536_000}
                   required
                   defaultValue={library.intervalSeconds}
+                  disabled={!writable}
+                />
+                <NativeSelect
+                  label="归档格式"
+                  name="format"
+                  data={["cbz", "zip"]}
+                  defaultValue={library.archive.format}
+                  disabled={!writable}
+                />
+                <TextInput
+                  label="归档命名模板"
+                  name="template"
+                  description="支持 {title}、{number}、{chapter}、{workId}、{chapterId}，最多四层相对路径，不含扩展名。修改不自动重命名已有归档。"
+                  defaultValue={library.archive.template}
+                  required
+                  maxLength={500}
+                  disabled={!writable}
+                />
+                <TextInput
+                  label="序号补零位数"
+                  name="padding"
+                  type="number"
+                  min={0}
+                  max={12}
+                  required
+                  defaultValue={library.archive.padding}
                   disabled={!writable}
                 />
                 <NativeSelect

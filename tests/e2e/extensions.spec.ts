@@ -170,18 +170,30 @@ test("安装、更新、卸载；来源设置、动态目录与追更共享生�
     await expect(page.getByText("已完成 0 章", { exact: false })).toBeVisible();
 
     registry.publishUpdate();
-    const update = registry.holdUpdate();
     await page.goto(market);
+    await global.getByRole("button", { name: "检查全部托管扩展更新" }).click();
+    await expect(
+      global.getByText("更新检查完成，尚未安装或切换版本。"),
+    ).toBeVisible();
+    await expect(
+      global.getByText(`${testPackage} · 1.0.0 → 1.1.0`),
+    ).toBeVisible();
+    const unchanged = await page.request.get(
+      `${service.url}/catalog?source=catalog-test`,
+    );
+    expect(await unchanged.text()).toContain(
+      "1.0.0 default browse default all 1",
+    );
+    const update = registry.holdUpdate();
+    await global.getByLabel("确认应用全部托管扩展更新").check();
     try {
-      await global
-        .getByRole("button", { name: "检查并更新全部托管扩展" })
-        .click();
+      await global.getByRole("button", { name: "应用全部更新" }).click();
       await update.requested;
       await expect(
-        global.getByRole("button", { name: "正在检查并更新…" }),
+        global.getByRole("button", { name: "应用全部更新" }),
       ).toBeDisabled();
       await expect(
-        packageCard.getByRole("button", { name: "更新" }),
+        packageCard.getByRole("button", { name: "更新", exact: true }),
       ).toBeDisabled();
       await expect(
         packageCard.getByRole("button", { name: "卸载" }),
@@ -245,7 +257,8 @@ test("安装、更新、卸载；来源设置、动态目录与追更共享生�
     const manage = page
       .locator("form")
       .filter({ has: page.getByLabel("已安装的 npm 包名") });
-    await manage.getByRole("button", { name: "更新" }).click();
+    await manage.getByLabel("确认按保存范围应用更新").check();
+    await manage.getByRole("button", { name: "更新", exact: true }).click();
     await expect(global.getByRole("alert")).toContainText("扩展操作失败");
     await expect(source).toBeVisible();
     const remove = await holdNextAction();
@@ -256,7 +269,7 @@ test("安装、更新、卸载；来源设置、动态目录与追更共享生�
         packageCard.getByRole("button", { name: "正在卸载…" }),
       ).toHaveAttribute("data-loading");
       await expect(
-        packageCard.getByRole("button", { name: "更新" }),
+        packageCard.getByRole("button", { name: "更新", exact: true }),
       ).toBeDisabled();
     } finally {
       remove.release();

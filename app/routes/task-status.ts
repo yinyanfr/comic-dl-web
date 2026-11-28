@@ -4,7 +4,8 @@ import { readShelf, shelfPage } from "../shelf.server";
 import type { Route } from "./+types/task-status";
 
 export async function loader({ url, context }: Route.LoaderArgs) {
-  const { downloadQueue, shelfWatcher } = context.get(comicsContext);
+  const comics = context.get(comicsContext);
+  const { shelfWatcher } = comics;
   const headers = { "Cache-Control": "no-store" };
   if (url.searchParams.get("scope") === "shelf") {
     const requestedPage = shelfPage(url);
@@ -20,7 +21,7 @@ export async function loader({ url, context }: Route.LoaderArgs) {
     );
   }
   return data(
-    { scope: "tasks" as const, tasks: downloadQueue.snapshot() },
+    { scope: "tasks" as const, tasks: await comics.tasks() },
     { headers },
   );
 }

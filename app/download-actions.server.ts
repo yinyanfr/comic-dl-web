@@ -1,11 +1,12 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { createDownloader } from "comic-dl";
 import { extensionApiVersion, type Series } from "comic-dl/extension";
 import { data } from "react-router";
 import { z } from "zod";
 import type { ComicRuntime } from "./comic-runtime.server";
 import {
-  isOutputReady,
+  outputReady,
+  downloadOptions,
   resolveDownloadInput,
   type WithDownloader,
 } from "./downloader.server";
@@ -42,12 +43,19 @@ const workMetadata = z.object({
     .refine(reusableWebUrl)
     .optional()
     .catch(undefined),
+  coverId: z.string().min(1).max(4096).optional().catch(undefined),
 });
 
-function readWorkMetadata(series: Series) {
-  return workMetadata.safeParse(
-    "metadata" in series ? series.metadata : undefined,
-  ).data;
+function readWorkMetadata(series: Series, source: string) {
+  const metadata = workMetadata.safeParse(series.metadata).data;
+  if (!metadata) return;
+  return {
+    ...metadata,
+    coverId: undefined,
+    coverUrl: metadata.coverId
+      ? `/covers?${new URLSearchParams({ source, id: metadata.coverId })}`
+      : metadata.coverUrl,
+  };
 }
 
 const chapterSelection = z
@@ -118,7 +126,7 @@ export function readWork(
     const result = await downloader.list(locator, { source, signal });
     return {
       workId: result.id,
-      metadata: readWorkMetadata(result),
+      metadata: readWorkMetadata(result, source),
       series: {
         source,
         catalog: catalogVersion(result, input, source),
@@ -130,7 +138,7 @@ export function readWork(
 
 export async function handleDownloadAction(
   request: Request,
-  { withDownloader, downloadQueue, directory }: ComicRuntime,
+  { withDownloader, downloadQueue, library, clearFinished }: ComicRuntime,
 ) {
   if (request.headers.get("Sec-Fetch-Site")?.endsWith("-site")) {
     return respond({ error: "请从本页面发起请求。" }, { status: 403 });
@@ -140,12 +148,17 @@ export async function handleDownloadAction(
 
   const intent = form.get("intent");
   if (intent === "clear-finished") {
-    downloadQueue.clearFinished();
+    await clearFinished();
     return respond({});
   }
-  if (intent === "cancel") {
+  if (intent === "cancel" || intent === "retry-task") {
     const id = z.uuid().safeParse(form.get("taskId"));
-    if (!id.success || !downloadQueue.cancel(id.data)) {
+    if (
+      !id.success ||
+      !(intent === "cancel"
+        ? downloadQueue.cancel(id.data)
+        : downloadQueue.retry(id.data))
+    ) {
       return respond({ error: "这个任务已结束或无法取消。" }, { status: 409 });
     }
     return respond({});
@@ -224,11 +237,7 @@ export async function handleDownloadAction(
       { status: 422 },
     );
   }
-  if (
-    !(await directory()
-      .then(isOutputReady)
-      .catch(() => false))
-  ) {
+  if (!(await outputReady(library()))) {
     return respond(
       { error: "漫画输出目录或挂载标记不可用，请恢复后再提交。" },
       { status: 503 },
@@ -240,10 +249,11 @@ export async function handleDownloadAction(
     .min(1)
     .max(512)
     .safeParse(form.get("title")).data;
+  const taskScope = randomUUID();
   const taskId = downloadQueue.submit(
     source,
     kind,
-    (signal, onResult, describe) =>
+    (signal, _onResult, describe, onEvent, retryIds) =>
       withDownloader(async (downloader) => {
         const { locator } = resolveDownloadInput(
           downloader,
@@ -251,12 +261,22 @@ export async function handleDownloadAction(
           kind,
           source,
         );
-        const output = await directory();
-        if (!(await isOutputReady(output)))
+        const settings = library();
+        if (!(await outputReady(settings)))
           throw new Error("Output marker unavailable");
-        const options = { source, signal, onResult, directory: output };
+        const options = {
+          source,
+          signal,
+          onEvent,
+          ...(await downloadOptions(settings)),
+          taskScope,
+        };
         if (!selections) {
-          await downloader.downloadChapter(locator, options);
+          const task = downloader.startDownload(locator, {
+            ...options,
+            direct: true,
+          });
+          await task.done;
           return;
         }
         const current = await downloader.list(locator, options);
@@ -272,7 +292,7 @@ export async function handleDownloadAction(
             id: current.id,
             title:
               saved?.title ??
-              readWorkMetadata(current)?.title ??
+              readWorkMetadata(current, source)?.title ??
               title ??
               (!URL.canParse(input) ? input.slice(0, 128) : undefined) ??
               `作品 · ${source}`,
@@ -288,13 +308,31 @@ export async function handleDownloadAction(
           id: source,
           create: () => ({
             id: source,
-            getSeries: async () => selected,
+            getSeries: async () => ({
+              ...current,
+              metadata: {
+                ...current.metadata,
+                title:
+                  saved?.title ??
+                  current.metadata?.title ??
+                  title ??
+                  current.id,
+              },
+            }),
             getChapter: async () => {
               throw new Error("Only the selected series is available");
             },
           }),
         });
-        await snapshot.download(locator, options);
+        const selectedIds = new Set(
+          retryIds ?? selected.chapters.map(({ id }) => id),
+        );
+        const chapters = current.chapters.flatMap((chapter) =>
+          selectedIds.has(chapter.id) ? [chapter.id] : [],
+        );
+        if (!chapters.length) return "invalid-selection";
+        const task = snapshot.startDownload(locator, { ...options, chapters });
+        await task.done;
       }, signal),
   );
   if (!taskId) {

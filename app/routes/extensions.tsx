@@ -156,6 +156,16 @@ function ManageForm({
         <Group gap="xs">
           <Button
             name="intent"
+            value="check-updates"
+            type="submit"
+            variant="light"
+            formNoValidate
+            loading={intent === "check-updates"}
+          >
+            检查更新
+          </Button>
+          <Button
+            name="intent"
             value="update"
             type="submit"
             variant="light"
@@ -170,10 +180,17 @@ function ManageForm({
             variant="subtle"
             color="red"
             loading={intent === "remove"}
+            formNoValidate
           >
             {intent === "remove" ? "正在卸载…" : "卸载"}
           </Button>
         </Group>
+        <Checkbox
+          name="confirm"
+          value="yes"
+          label="确认按保存范围应用更新"
+          required
+        />
       </fieldset>
     </command.Form>
   );
@@ -300,10 +317,14 @@ function SourceSettings({
   source,
   writable,
   packageBusy,
+  packages,
+  controls,
 }: {
   source: LoadedSource;
   writable: boolean;
   packageBusy: boolean;
+  packages: Route.ComponentProps["loaderData"]["packages"];
+  controls: PackageControls;
 }) {
   const save = useFetcher<typeof action>();
   return (
@@ -334,6 +355,18 @@ function SourceSettings({
             打开目录
           </Button>
         </Group>
+        {packages
+          .filter((item) => item.sourceId === source.id)
+          .map((item) => (
+            <Stack key={item.package} gap="xs">
+              <Text size="xs">
+                {item.package} · {item.version ?? "未知版本"} · {item.requested}
+              </Text>
+              {writable && (
+                <ManageForm packageName={item.package} controls={controls} />
+              )}
+            </Stack>
+          ))}
         {source.options.length === 0 && (
           <Text size="sm" c="dimmed">
             没有声明可编辑的设置。
@@ -400,13 +433,15 @@ function SourceSettings({
 }
 
 export default function Extensions({ loaderData }: Route.ComponentProps) {
-  const { sources, issues, installed, deploymentPackages, writable } =
+  const { sources, issues, installed, packages, deploymentPackages, writable } =
     loaderData;
   const command = useFetcher<typeof action>();
   const fetchers = useFetchers();
   const packageBusy = command.state !== "idle";
   const activeForm = packageBusy ? command.formData : undefined;
   const bulkPending = activeForm?.get("intent") === "update-all";
+  const checkPending =
+    activeForm?.get("intent") === "check-updates" && !activeForm.get("name");
   const busy =
     packageBusy ||
     fetchers.some(
@@ -440,31 +475,69 @@ export default function Extensions({ loaderData }: Route.ComponentProps) {
               <command.Form
                 method="post"
                 action="/extensions"
-                aria-busy={bulkPending}
+                aria-busy={checkPending}
               >
                 <Button
                   type="submit"
                   name="intent"
-                  value="update-all"
-                  loading={bulkPending}
+                  value="check-updates"
+                  loading={checkPending}
                   disabled={busy}
                 >
-                  {bulkPending ? "正在检查并更新…" : "检查并更新全部托管扩展"}
+                  {checkPending ? "正在检查更新…" : "检查全部托管扩展更新"}
                 </Button>
               </command.Form>
+              {command.data?.updates && (
+                <Stack gap="xs">
+                  {command.data.updates.map((item) => (
+                    <Text size="sm" key={item.package}>
+                      {item.package} · {item.version ?? "未知"} →{" "}
+                      {item.updateStatus === "failed"
+                        ? "检查失败"
+                        : item.updateStatus === "current"
+                          ? "已是范围内最新版本"
+                          : item.availableVersion}
+                    </Text>
+                  ))}
+                  {command.data.updates.some(
+                    (item) => item.updateStatus === "available",
+                  ) && (
+                    <command.Form method="post" action="/extensions">
+                      <Checkbox
+                        name="confirm"
+                        value="yes"
+                        label="确认应用全部托管扩展更新"
+                        required
+                        disabled={busy}
+                      />
+                      <Button
+                        type="submit"
+                        name="intent"
+                        value="update-all"
+                        loading={bulkPending}
+                        disabled={busy}
+                      >
+                        应用全部更新
+                      </Button>
+                    </command.Form>
+                  )}
+                </Stack>
+              )}
               <Text size="sm" c="dimmed">
-                按安装时的版本范围检查并应用更新。内置扩展随应用更新，也可安装托管版本；卸载后恢复内置版本。
+                检查不会安装或切换版本。应用时按保存范围重新解析；固定版本不会自动跨版本升级。内置扩展随应用更新，卸载托管包后恢复内置版本。
               </Text>
               <Feedback
                 result={command}
                 pending={
                   bulkPending
-                    ? "正在检查并更新全部托管扩展…"
-                    : activeForm?.get("intent") === "remove"
-                      ? "正在卸载扩展…"
-                      : activeForm?.get("intent") === "update"
-                        ? "正在更新扩展…"
-                        : "正在安装扩展…"
+                    ? "正在应用全部托管扩展更新…"
+                    : activeForm?.get("intent") === "check-updates"
+                      ? "正在检查更新，当前版本保持不变…"
+                      : activeForm?.get("intent") === "remove"
+                        ? "正在卸载扩展…"
+                        : activeForm?.get("intent") === "update"
+                          ? "正在更新扩展…"
+                          : "正在安装扩展…"
                 }
               />
             </Stack>
@@ -494,6 +567,15 @@ export default function Extensions({ loaderData }: Route.ComponentProps) {
                     {extension.name}
                   </Text>
                   <Text size="sm">{extension.description}</Text>
+                  {packages
+                    .filter((item) => item.package === extension.name)
+                    .map((item) => (
+                      <Text size="xs" key={item.package}>
+                        版本 {item.version ?? "未知"} · 范围 {item.requested} ·
+                        来源 {item.sourceId ?? "未知"} ·{" "}
+                        {item.status === "loaded" ? "定义可加载" : "加载失败"}
+                      </Text>
+                    ))}
                   <Group gap="xs">
                     <Badge variant="light">随应用提供</Badge>
                     {loaded.has(extension.id) && (
@@ -573,8 +655,8 @@ export default function Extensions({ loaderData }: Route.ComponentProps) {
               托管扩展
             </Title>
             <Text size="sm" c="dimmed">
-              包清单来自上次管理操作。若通过 CLI
-              安装或更新过扩展，可按包名管理；当前加载状态以下方来源列表为准。
+              清单来自当前托管目录。定义可加载不代表账号或站点可用；从 CLI
+              变更扩展后请重启服务。
             </Text>
             {deploymentPackages.length > 0 && (
               <Text size="sm">
@@ -593,6 +675,15 @@ export default function Extensions({ loaderData }: Route.ComponentProps) {
                   <Text size="sm" fw={600}>
                     {name}
                   </Text>
+                  {packages
+                    .filter((item) => item.package === name)
+                    .map((item) => (
+                      <Text key={name} size="xs">
+                        版本 {item.version ?? "未知"} · 范围 {item.requested} ·
+                        来源 {item.sourceId ?? "未知"} ·{" "}
+                        {item.status === "loaded" ? "定义可加载" : "加载失败"}
+                      </Text>
+                    ))}
                   {writable && (
                     <ManageForm packageName={name} controls={controls} />
                   )}
@@ -640,6 +731,8 @@ export default function Extensions({ loaderData }: Route.ComponentProps) {
                 source={source}
                 writable={writable}
                 packageBusy={packageBusy}
+                packages={packages}
+                controls={controls}
               />
             ))}
           </Stack>

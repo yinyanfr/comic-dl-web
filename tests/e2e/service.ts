@@ -1,15 +1,35 @@
 import { spawn } from "node:child_process";
 import { once } from "node:events";
+import { mkdir, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import process from "node:process";
 import { createInterface } from "node:readline";
 import { expect } from "@playwright/test";
+
+export async function archiveFiles(directory: string) {
+  const files: string[] = [];
+  async function visit(relative: string) {
+    const entries = await readdir(join(directory, relative), {
+      withFileTypes: true,
+    });
+    for (const entry of entries) {
+      if (entry.name.startsWith(".")) continue;
+      const name = join(relative, entry.name);
+      if (entry.isDirectory()) await visit(name);
+      else if (entry.isFile() && /\.(cbz|zip)$/.test(entry.name))
+        files.push(name);
+    }
+  }
+  await visit("");
+  return files;
+}
 
 export function testServices(directory: string) {
   const servers = new Set<() => Promise<void>>();
 
   return {
     async start(environment: NodeJS.ProcessEnv = {}) {
+      await mkdir(join(directory, "archives"), { recursive: true });
       const child = spawn(process.execPath, ["server.ts"], {
         env: {
           ...process.env,

@@ -41,8 +41,7 @@ test("聚合搜索保留可用来源的结果，并独立标注未配置和失�
   });
   const url = new URL("http://localhost/catalog?q=漫画");
   const result = await loadCatalog(url, new Request(url), {
-    inspect: (run) =>
-      run(downloader, { settings: {}, installed: null, credentials: {} }),
+    inspect: (run) => run(downloader, { settings: {}, credentials: {} }),
     usesBundledSource: () => true,
   });
   expect(result.groups).toEqual(
@@ -56,7 +55,11 @@ test("聚合搜索保留可用来源的结果，并独立标注未配置和失�
             input: "demo",
             coverUrl: "https://example.com/cover.png",
           },
-          { title: "无需公开凭证", input: "other", coverUrl: undefined },
+          {
+            title: "无需公开凭证",
+            input: "other",
+            coverUrl: "/covers?source=public-source&input=other",
+          },
         ],
       },
       { source: "broken-source", issue: "unavailable" },

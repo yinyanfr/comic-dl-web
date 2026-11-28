@@ -28,6 +28,43 @@ export function usesBundledSource(downloader: Downloader, id: string) {
 const fixtureFlag = z.enum(["0", "1"]).default("0");
 const path = z.string().trim().min(1);
 const watchInterval = z.coerce.number().int().min(1).max(31_536_000);
+export const archiveSettings = z.object({
+  template: z
+    .string()
+    .trim()
+    .min(1)
+    .max(500)
+    .refine((value) => {
+      const parts = value.split("/");
+      return (
+        parts.length <= 4 &&
+        parts.every(
+          (part) =>
+            part.length > 0 &&
+            part !== "." &&
+            part !== ".." &&
+            !/[\\:\p{Cc}]/u.test(part) &&
+            !/\{(?!title\}|chapter\}|number\}|workId\}|chapterId\})/.test(
+              part,
+            ) &&
+            !/[{}]/.test(
+              part.replace(
+                /\{(?:title|chapter|number|workId|chapterId)\}/g,
+                "",
+              ),
+            ),
+        ) &&
+        !/\.(?:cbz|zip)$/i.test(value)
+      );
+    }),
+  padding: z.coerce.number().int().min(0).max(12),
+  format: z.enum(["cbz", "zip"]),
+});
+export const defaultArchive = {
+  template: "{title}/{number}-{chapter}",
+  padding: 0,
+  format: "cbz" as const,
+};
 export const librarySettings = z.object({
   folder: z
     .string()
@@ -48,6 +85,7 @@ export const librarySettings = z.object({
     ),
   intervalSeconds: watchInterval,
   defaultSource: sourceId.optional(),
+  archive: archiveSettings.default(defaultArchive),
 });
 export type LibrarySettings = z.infer<typeof librarySettings>;
 export const packageName = z
@@ -129,6 +167,7 @@ export const defaultLibrarySettings = {
   folder: "",
   intervalSeconds: watchOptions.intervalSeconds,
   defaultSource: config.COMIC_DL_WEB_DEFAULT_SOURCE,
+  archive: defaultArchive,
 };
 
 export function isAdminRequest(request: Request) {
@@ -142,8 +181,6 @@ export function isAdminRequest(request: Request) {
 
 export async function outputDirectory(folder: string) {
   if (!folder) return watchOptions.directory;
-  if (watchOptions.outputMarker)
-    throw new Error("Output subfolders are unavailable with a mount marker");
   const requested = join(watchOptions.directory, folder);
   const root = await realpath(watchOptions.directory);
   const directory = await realpath(requested);
@@ -153,6 +190,26 @@ export async function outputDirectory(folder: string) {
   )
     throw new Error("Invalid output subfolder");
   return directory;
+}
+export async function downloadOptions(settings: LibrarySettings) {
+  return {
+    directory: await outputDirectory(settings.folder),
+    outputRoot: watchOptions.directory,
+    outputMarker: watchOptions.outputMarker,
+    archive: settings.archive,
+  };
+}
+
+export async function outputReady(settings: LibrarySettings) {
+  try {
+    const directory = await outputDirectory(settings.folder);
+    return (
+      (await stat(directory)).isDirectory() &&
+      (await isOutputReady(watchOptions.directory))
+    );
+  } catch {
+    return false;
+  }
 }
 export const fixtureDirectory = fixtureEnabled(process.env)
   ? resolve(

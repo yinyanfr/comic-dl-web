@@ -46,17 +46,26 @@ interface CatalogData {
   error?: string;
 }
 
-function publicWorks(search: SearchPage) {
+function publicWorks(search: SearchPage, source: string) {
   return search.results.flatMap((work): CatalogWork[] => {
     const input = workInput.safeParse(work.url).data;
     if (!input || (URL.canParse(input) && !reusableWebUrl(input))) return [];
     // Cover metadata is optional for independently published source extensions.
-    const cover = "coverUrl" in work ? work.coverUrl : undefined;
+    const cover = work.coverUrl;
     const coverUrl =
       typeof cover === "string" && cover.length <= 4096 && reusableWebUrl(cover)
         ? cover
         : undefined;
-    return [{ title: work.title.slice(0, 512) || input, input, coverUrl }];
+    return [
+      {
+        title: work.title.slice(0, 512) || input,
+        input,
+        coverUrl:
+          work.coverId && work.coverId.length <= 4096
+            ? `/covers?${new URLSearchParams({ source, id: work.coverId })}`
+            : (coverUrl ?? `/covers?${new URLSearchParams({ source, input })}`),
+      },
+    ];
   });
 }
 
@@ -114,7 +123,7 @@ export async function loadCatalog(
             });
             return {
               source: id,
-              results: publicWorks(search),
+              results: publicWorks(search, id),
               hasNext: search.hasNext,
             };
           } catch {
@@ -155,7 +164,7 @@ export async function loadCatalog(
         filters: result.filters,
         signal,
       });
-      result.results = publicWorks(search);
+      result.results = publicWorks(search, source);
       result.hasNext = search.hasNext;
       return result;
     } catch (error) {
