@@ -1,3 +1,6 @@
+import { useI18n } from "../i18n-context";
+import { pageTitle, languageNames, locales } from "../i18n";
+import { changeLanguage } from "../i18n-context";
 import {
   Alert,
   Button,
@@ -24,8 +27,8 @@ import { extensionCatalog } from "../extension-catalog";
 import type { Route } from "./+types/settings";
 import styles from "./home.module.css";
 
-export function meta() {
-  return [{ title: "设置 · comic-dl-web" }];
+export function meta({ matches }: Route.MetaArgs) {
+  return [{ title: pageTitle(matches, "设置") }];
 }
 
 export async function loader({ request, context }: Route.LoaderArgs) {
@@ -84,23 +87,39 @@ export async function action({ context, request }: Route.ActionArgs) {
 }
 
 function AppearanceSettings() {
+  const { t, locale } = useI18n();
   const { colorScheme, setColorScheme } = useMantineColorScheme();
   const mounted = useMounted();
   return (
     <Paper component="section" p="lg" withBorder>
       <Stack gap="sm">
         <Title order={2} size="h4">
-          外观
+          {t("外观")}
         </Title>
         <NativeSelect
-          label="颜色模式"
-          description="仅保存在当前浏览器"
+          label={t("界面语言")}
+          disabled={!mounted}
+          description={t(
+            "仅翻译项目界面，不翻译漫画名、章节名、简介或书源提供的内容。",
+          )}
+          value={locale}
+          data={locales.map((value) => ({
+            value,
+            label: languageNames[value],
+          }))}
+          onChange={(event) =>
+            changeLanguage(event.currentTarget.value as typeof locale)
+          }
+        />
+        <NativeSelect
+          label={t("颜色模式")}
+          description={t("仅保存在当前浏览器")}
           disabled={!mounted}
           value={mounted ? colorScheme : "auto"}
           data={[
-            { value: "auto", label: "跟随系统" },
-            { value: "light", label: "日间模式" },
-            { value: "dark", label: "夜间模式" },
+            { value: "auto", label: t("跟随系统") },
+            { value: "light", label: t("日间模式") },
+            { value: "dark", label: t("夜间模式") },
           ]}
           onChange={({ currentTarget }) => {
             const value = currentTarget.value;
@@ -114,6 +133,7 @@ function AppearanceSettings() {
 }
 
 export default function Settings({ loaderData }: Route.ComponentProps) {
+  const { t } = useI18n();
   const { library, sources, writable } = loaderData;
   const save = useFetcher<typeof action>();
   const choices = [
@@ -125,18 +145,20 @@ export default function Settings({ loaderData }: Route.ComponentProps) {
   return (
     <Container component="main" size="lg" className={styles.main}>
       <Stack gap="lg">
-        <Title order={1}>设置</Title>
+        <Title order={1}>{t("设置")}</Title>
         <AppearanceSettings />
         {loaderData.passwordProtected && (
           <Paper component="section" p="lg" withBorder>
             <Stack gap="sm">
               <Title order={2} size="h4">
-                管理员登录
+                {t("管理员登录")}
               </Title>
-              <Text size="sm">已启用密码保护。退出后需要重新输入密码。</Text>
+              <Text size="sm">
+                {t("已启用密码保护。退出后需要重新输入密码。")}
+              </Text>
               <form method="post" action="/auth/logout">
                 <Button type="submit" variant="light">
-                  退出登录
+                  {t("退出登录")}
                 </Button>
               </form>
             </Stack>
@@ -148,32 +170,36 @@ export default function Settings({ loaderData }: Route.ComponentProps) {
             to="/settings/archive-migration"
             variant="light"
           >
-            预览与迁移已有归档
+            {t("预览与迁移已有归档")}
           </Button>
         )}
         <Paper component="section" p="lg" withBorder>
           <Stack gap="sm">
             <Title order={2} size="h4">
-              下载与追更
+              {t("下载与追更")}
             </Title>
             {!writable && (
               <Text size="sm" c="dimmed">
-                部署者尚未开启网页管理；以下为当前设置。
+                {t("部署者尚未开启网页管理；以下为当前设置。")}
               </Text>
             )}
             <save.Form method="post" key={JSON.stringify(library)}>
               <Stack gap="sm">
                 <TextInput
-                  label="下载子目录"
+                  label={t("下载子目录")}
                   name="folder"
                   defaultValue={library.folder}
-                  description="输出根下已存在的相对目录，例如 Manga/新作。挂载标记始终在部署者配置的根目录检查。"
+                  description={t(
+                    "输出根下已存在的相对目录，例如 Manga/新作。挂载标记始终在部署者配置的根目录检查。",
+                  )}
                   maxLength={512}
                   disabled={!writable}
                 />
                 <TextInput
-                  label="追更间隔（秒）"
-                  description="保存后重新计算使用全局间隔的作品检查时间，不清除基线；作品级间隔可在书架覆盖。"
+                  label={t("追更间隔（秒）")}
+                  description={t(
+                    "保存后重新计算使用全局间隔的作品检查时间，不清除基线；作品级间隔可在书架覆盖。",
+                  )}
                   name="intervalSeconds"
                   type="number"
                   min={1}
@@ -183,23 +209,25 @@ export default function Settings({ loaderData }: Route.ComponentProps) {
                   disabled={!writable}
                 />
                 <NativeSelect
-                  label="归档格式"
+                  label={t("归档格式")}
                   name="format"
                   data={["cbz", "zip"]}
                   defaultValue={library.archive.format}
                   disabled={!writable}
                 />
                 <TextInput
-                  label="归档命名模板"
+                  label={t("归档命名模板")}
                   name="template"
-                  description="支持 {title}、{number}、{chapter}、{workId}、{chapterId}，最多四层相对路径，不含扩展名。修改不自动重命名已有归档。"
+                  description={t(
+                    "支持 {title}、{number}、{chapter}、{workId}、{chapterId}，最多四层相对路径，不含扩展名。修改不自动重命名已有归档。",
+                  )}
                   defaultValue={library.archive.template}
                   required
                   maxLength={500}
                   disabled={!writable}
                 />
                 <TextInput
-                  label="序号补零位数"
+                  label={t("序号补零位数")}
                   name="padding"
                   type="number"
                   min={0}
@@ -209,13 +237,15 @@ export default function Settings({ loaderData }: Route.ComponentProps) {
                   disabled={!writable}
                 />
                 <NativeSelect
-                  label="默认下载来源"
+                  label={t("默认下载来源")}
                   name="defaultSource"
                   disabled={!writable}
-                  description="没有明确选源时使用；选择自动识别可由作品地址决定。"
+                  description={t(
+                    "没有明确选源时使用；选择自动识别可由作品地址决定。",
+                  )}
                   defaultValue={library.defaultSource ?? ""}
                   data={[
-                    { value: "", label: "自动识别" },
+                    { value: "", label: t("自动识别") },
                     ...choices.map((id) => ({
                       value: id,
                       label:
@@ -233,7 +263,7 @@ export default function Settings({ loaderData }: Route.ComponentProps) {
                       value="save"
                       disabled={save.state !== "idle"}
                     >
-                      保存设置
+                      {t("保存设置")}
                     </Button>
                     <Button
                       type="submit"
@@ -243,18 +273,18 @@ export default function Settings({ loaderData }: Route.ComponentProps) {
                       formNoValidate
                       disabled={save.state !== "idle"}
                     >
-                      恢复部署默认值
+                      {t("恢复部署默认值")}
                     </Button>
                   </Group>
                 )}
                 {save.data?.error && (
                   <Alert color="red" role="alert">
-                    {save.data.error}
+                    {t(save.data.error)}
                   </Alert>
                 )}
                 {save.data?.message && (
                   <Text size="sm" role="status">
-                    {save.data.message}
+                    {t(save.data.message)}
                   </Text>
                 )}
               </Stack>
@@ -264,14 +294,14 @@ export default function Settings({ loaderData }: Route.ComponentProps) {
         <Paper component="section" p="lg" withBorder>
           <Stack gap="sm">
             <Title order={2} size="h4">
-              漫画来源
+              {t("漫画来源")}
             </Title>
             <Text size="sm">
-              网站地址、Cookie 和 API Key 在对应来源的设置中管理。
+              {t("网站地址、Cookie 和 API Key 在对应来源的设置中管理。")}
             </Text>
             <Group>
               <Button component={Link} variant="light" to="/extensions">
-                打开来源设置
+                {t("打开来源设置")}
               </Button>
             </Group>
           </Stack>

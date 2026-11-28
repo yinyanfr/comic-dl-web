@@ -1,3 +1,5 @@
+import { useI18n } from "../i18n-context";
+import { pageTitle } from "../i18n";
 import {
   Alert,
   Button,
@@ -22,8 +24,8 @@ import { WorkChapters } from "../work-chapters";
 import type { Route } from "./+types/downloads";
 import styles from "./home.module.css";
 
-export function meta() {
-  return [{ title: "手动下载 · comic-dl-web" }];
+export function meta({ matches }: Route.MetaArgs) {
+  return [{ title: pageTitle(matches, "手动下载") }];
 }
 
 export async function loader({ request, context, url }: Route.LoaderArgs) {
@@ -58,6 +60,7 @@ function DownloadWorkspace({
   sources,
   preset,
 }: Route.ComponentProps["loaderData"]) {
+  const { t } = useI18n();
   const lookup = useFetcher<typeof action>();
   const tasks = useOutletContext<DownloadTaskSnapshot[]>();
   const [listedInput, setListedInput] = useState("");
@@ -68,7 +71,7 @@ function DownloadWorkspace({
   return (
     <Container component="main" size="lg" className={styles.main}>
       <Title order={1} mb="lg">
-        手动下载
+        {t("手动下载")}
       </Title>
 
       <div className={styles.workspace}>
@@ -81,17 +84,17 @@ function DownloadWorkspace({
             className={styles.sources}
           >
             <Title id="sources-heading" order={2} size="h4">
-              下载漫画
+              {t("下载漫画")}
             </Title>
             <Text size="sm" c="dimmed" mt={4} mb="md">
-              输入作品链接查看章节，或直接下载单个章节。
+              {t("输入作品链接查看章节，或直接下载单个章节。")}
             </Text>
             {sources.unavailable ? (
               <Alert color="yellow" mb="md">
-                部分或全部漫画源无法加载，请检查扩展市场和服务端配置。
+                {t("部分或全部漫画源无法加载，请检查扩展市场和服务端配置。")}
               </Alert>
             ) : sources.ids.length === 0 ? (
-              <Alert mb="md">尚未加载漫画源。</Alert>
+              <Alert mb="md">{t("尚未加载漫画源。")}</Alert>
             ) : null}
             <lookup.Form
               method="post"
@@ -106,9 +109,9 @@ function DownloadWorkspace({
                 <NativeSelect
                   name="source"
                   defaultValue={preset?.source ?? ""}
-                  label="漫画源"
+                  label={t("漫画源")}
                   data={[
-                    { value: "", label: "使用默认源或按链接识别" },
+                    { value: "", label: t("使用默认源或按链接识别") },
                     ...sources.ids,
                   ]}
                   disabled={sources.ids.length === 0}
@@ -116,10 +119,10 @@ function DownloadWorkspace({
                 <TextInput
                   name="input"
                   defaultValue={preset?.input ?? ""}
-                  label="作品或章节链接 / 短 ID"
+                  label={t("作品或章节链接 / 短 ID")}
                   placeholder={
                     sources.ids.includes("fixture")
-                      ? "离线测试可输入 demo"
+                      ? t("离线测试可输入 demo")
                       : "https://…"
                   }
                   maxLength={4096}
@@ -133,8 +136,8 @@ function DownloadWorkspace({
                     disabled={inputsDisabled}
                   >
                     {lookup.formData?.get("intent") === "list"
-                      ? "正在读取…"
-                      : "查看章节"}
+                      ? t("正在读取…")
+                      : t("查看章节")}
                   </Button>
                   <Button
                     type="submit"
@@ -143,19 +146,19 @@ function DownloadWorkspace({
                     variant="light"
                     disabled={inputsDisabled}
                   >
-                    下载章节直链
+                    {t("下载章节直链")}
                   </Button>
                 </Group>
               </Stack>
             </lookup.Form>
             {!lookingUp && lookup.data?.error && (
               <Alert color="red" role="alert" mt="md">
-                {lookup.data.error}
+                {t(lookup.data.error)}
               </Alert>
             )}
             {!lookingUp && lookup.data?.taskId && (
               <Text role="status" size="sm" c="dimmed" mt="md">
-                已提交任务：{lookup.data.taskId}
+                {t("已提交任务：{id}", { id: lookup.data.taskId })}
               </Text>
             )}
           </Paper>

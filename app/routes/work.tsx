@@ -1,3 +1,5 @@
+import { useI18n } from "../i18n-context";
+import { pageTitle, readLocale, translator } from "../i18n";
 import {
   Alert,
   Badge,
@@ -21,8 +23,14 @@ import { WorkChapters } from "../work-chapters";
 import type { Route } from "./+types/work";
 import styles from "./home.module.css";
 
-export function meta({ loaderData }: Route.MetaArgs) {
-  return [{ title: `${loaderData?.title ?? "作品详情"} · comic-dl-web` }];
+export function meta({ loaderData, matches }: Route.MetaArgs) {
+  return [
+    {
+      title: loaderData?.title
+        ? `${loaderData.title} · comic-dl-web`
+        : pageTitle(matches, "作品详情"),
+    },
+  ];
 }
 
 const titleParam = z.string().trim().min(1).max(512);
@@ -51,7 +59,7 @@ export async function loader({ context, request, url }: Route.LoaderArgs) {
     entry?.title ??
     titleParam.safeParse(params.get("title")).data ??
     safeInput ??
-    "作品详情";
+    translator(readLocale(request.headers.get("cookie")))("作品详情");
   const initial = {
     title,
     source: target?.source,
@@ -94,6 +102,7 @@ export async function loader({ context, request, url }: Route.LoaderArgs) {
 }
 
 export default function Work({ loaderData }: Route.ComponentProps) {
+  const { t } = useI18n();
   const { title, source, fromShelf } = loaderData;
   const { state } = useLocation();
   const previous = state?.catalog;
@@ -112,7 +121,7 @@ export default function Work({ loaderData }: Route.ComponentProps) {
             to={fromShelf ? "/" : sourceLink}
             variant="subtle"
           >
-            {fromShelf ? "返回书架" : "返回来源目录"}
+            {fromShelf ? t("返回书架") : t("返回来源目录")}
           </Button>
           {label && <Badge variant="light">{label}</Badge>}
         </Group>
@@ -120,15 +129,22 @@ export default function Work({ loaderData }: Route.ComponentProps) {
           <>
             <Title order={1}>{title}</Title>
             <Alert role="alert" color="yellow">
-              {loaderData.error}{" "}
+              {t(loaderData.error)}{" "}
               {source && (
-                <Link to={`/extensions#source-${source}`}>查看来源设置</Link>
+                <Link to={`/extensions#source-${source}`}>
+                  {t("查看来源设置")}
+                </Link>
               )}
             </Alert>
           </>
         ) : (
           <>
-            <Paper component="section" withBorder p="lg" aria-label="作品信息">
+            <Paper
+              component="section"
+              withBorder
+              p="lg"
+              aria-label={t("作品信息")}
+            >
               <Group align="flex-start" gap="lg">
                 {loaderData.metadata?.coverUrl && (
                   <Image
@@ -146,11 +162,12 @@ export default function Work({ loaderData }: Route.ComponentProps) {
                   <Title order={1}>{title}</Title>
                   {Boolean(loaderData.metadata?.authors?.length) && (
                     <Text size="sm">
-                      作者：{loaderData.metadata?.authors?.join("、")}
+                      {t("作者：")}
+                      {loaderData.metadata?.authors?.join("、")}
                     </Text>
                   )}
                   {Boolean(loaderData.metadata?.tags?.length) && (
-                    <Group gap={6} aria-label="标签">
+                    <Group gap={6} aria-label={t("标签")}>
                       {loaderData.metadata?.tags?.map((tag, index) => (
                         <Badge variant="light" key={`${index}:${tag}`}>
                           {tag}
@@ -161,7 +178,7 @@ export default function Work({ loaderData }: Route.ComponentProps) {
                   {loaderData.metadata?.summary && (
                     <>
                       <Title order={2} size="h5">
-                        简介
+                        {t("简介")}
                       </Title>
                       <Text size="sm" className={styles.summary}>
                         {loaderData.metadata.summary}

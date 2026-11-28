@@ -1,3 +1,4 @@
+import { useI18n } from "./i18n-context";
 import {
   Alert,
   Badge,
@@ -27,6 +28,7 @@ export function WorkChapters({
   series: Awaited<ReturnType<typeof readWork>>["series"];
   onShelf?: boolean;
 }) {
+  const { t } = useI18n();
   const download = useFetcher<typeof downloadAction>();
   const collect = useFetcher<typeof shelfAction>();
   const submitting = download.state !== "idle";
@@ -40,15 +42,18 @@ export function WorkChapters({
       <Stack gap="sm">
         <Group justify="space-between">
           <Title id="chapters-heading" order={2} size="h4">
-            章节列表
+            {t("章节列表")}
           </Title>
           <Badge variant="light">
-            {series.source} · {series.chapters.length} 章
+            {t("{source} · {count} 章", {
+              source: series.source,
+              count: series.chapters.length,
+            })}
           </Badge>
         </Group>
         {onShelf || collect.data?.message ? (
           <Text role="status" size="sm">
-            {collect.data?.message ?? "已在书架中"}
+            {collect.data?.message ? t(collect.data.message) : t("已在书架中")}
           </Text>
         ) : (
           <collect.Form method="post" action="/shelf">
@@ -62,17 +67,17 @@ export function WorkChapters({
               variant="light"
               loading={collect.state !== "idle"}
             >
-              加入书架
+              {t("加入书架")}
             </Button>
           </collect.Form>
         )}
         {collect.state === "idle" && collect.data?.error && (
           <Alert color="red" role="alert">
-            {collect.data.error}
+            {t(collect.data.error)}
           </Alert>
         )}
         {series.chapters.length === 0 ? (
-          <Text c="dimmed">这个作品没有可选章节。</Text>
+          <Text c="dimmed">{t("这个作品没有可选章节。")}</Text>
         ) : (
           <download.Form method="post" action="/downloads">
             <input type="hidden" name="input" value={input} />
@@ -80,7 +85,7 @@ export function WorkChapters({
             <input type="hidden" name="catalog" value={series.catalog} />
             {title && <input type="hidden" name="title" value={title} />}
             <fieldset className={styles.chapterList} disabled={submitting}>
-              <legend>选择章节</legend>
+              <legend>{t("选择章节")}</legend>
               {series.chapters.map((chapter, index) => (
                 <Checkbox
                   key={chapter.id}
@@ -94,8 +99,10 @@ export function WorkChapters({
             <Stack mt="md" align="flex-start">
               <TextInput
                 name="range"
-                label="章节范围（可选）"
-                description="按列表序号，两端都包含。可与勾选的章节一同提交。"
+                label={t("章节范围（可选）")}
+                description={t(
+                  "按列表序号，两端都包含。可与勾选的章节一同提交。",
+                )}
                 placeholder="2-4"
                 pattern="[0-9]+-[0-9]+"
                 maxLength={41}
@@ -107,7 +114,7 @@ export function WorkChapters({
                   value="series"
                   disabled={submitting}
                 >
-                  提交下载
+                  {t("提交下载")}
                 </Button>
                 <Button
                   type="submit"
@@ -117,23 +124,23 @@ export function WorkChapters({
                   formNoValidate
                   disabled={submitting}
                 >
-                  {onShelf ? "下载全部未下载章节" : "下载全部章节"}
+                  {onShelf ? t("下载全部未下载章节") : t("下载全部章节")}
                 </Button>
               </Group>
               <Text size="sm" c="dimmed">
-                已有的 CBZ 会自动跳过。
+                {t("已有的 CBZ 会自动跳过。")}
               </Text>
             </Stack>
           </download.Form>
         )}
         {!submitting && download.data?.error && (
           <Alert color="red" role="alert">
-            {download.data.error}
+            {t(download.data.error)}
           </Alert>
         )}
         {!submitting && download.data?.taskId && (
           <Text role="status" size="sm">
-            已提交任务：{download.data.taskId}
+            {t("已提交任务：{id}", { id: download.data.taskId })}
           </Text>
         )}
       </Stack>

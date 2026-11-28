@@ -1,3 +1,4 @@
+import { useI18n } from "./i18n-context";
 import "@mantine/core/styles.layer.css";
 import {
   ColorSchemeScript,
@@ -24,7 +25,11 @@ import {
   Outlet,
   Scripts,
   ScrollRestoration,
+  useRouteLoaderData,
 } from "react-router";
+import { readLocale } from "./i18n";
+import { LocaleContext } from "./i18n-context";
+import { LanguagePicker } from "./language-picker";
 import { comicsContext } from "./comic-runtime.server";
 import { DownloadTasks } from "./download-tasks";
 import { Icon, type IconName } from "./icons";
@@ -42,8 +47,9 @@ export const links = () => [
 ];
 
 export function Layout({ children }: { children: React.ReactNode }) {
+  const { locale = "zh-CN" } = useRouteLoaderData<typeof loader>("root") ?? {};
   return (
-    <html lang="zh-CN" {...mantineHtmlProps}>
+    <html lang={locale} {...mantineHtmlProps}>
       <head>
         <meta charSet="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -53,7 +59,9 @@ export function Layout({ children }: { children: React.ReactNode }) {
       </head>
       <body>
         <MantineProvider theme={theme} defaultColorScheme="auto">
-          {children}
+          <LocaleContext.Provider value={locale}>
+            {children}
+          </LocaleContext.Provider>
         </MantineProvider>
         <ScrollRestoration />
         <Scripts />
@@ -62,11 +70,15 @@ export function Layout({ children }: { children: React.ReactNode }) {
   );
 }
 
-export async function loader({ context }: Route.LoaderArgs) {
-  return { tasks: await context.get(comicsContext).tasks() };
+export async function loader({ context, request }: Route.LoaderArgs) {
+  return {
+    tasks: await context.get(comicsContext).tasks(),
+    locale: readLocale(request.headers.get("cookie")),
+  };
 }
 
 function ThemeToggle() {
+  const { t } = useI18n();
   const { setColorScheme } = useMantineColorScheme();
   const colorScheme = useComputedColorScheme("light", {
     getInitialValueInEffect: true,
@@ -75,8 +87,8 @@ function ThemeToggle() {
     <ActionIcon
       size={36}
       variant="subtle"
-      aria-label={colorScheme === "dark" ? "日间模式" : "夜间模式"}
-      title={colorScheme === "dark" ? "日间模式" : "夜间模式"}
+      aria-label={colorScheme === "dark" ? t("日间模式") : t("夜间模式")}
+      title={colorScheme === "dark" ? t("日间模式") : t("夜间模式")}
       onClick={() => setColorScheme(colorScheme === "dark" ? "light" : "dark")}
     >
       <Box component="span" darkHidden>
@@ -90,6 +102,7 @@ function ThemeToggle() {
 }
 
 export default function App({ loaderData }: Route.ComponentProps) {
+  const { t } = useI18n();
   const [opened, drawer] = useDisclosure(false);
   const live = useTaskUpdates("tasks");
   const tasks = live?.scope === "tasks" ? live.tasks : loaderData.tasks;
@@ -107,7 +120,7 @@ export default function App({ loaderData }: Route.ComponentProps) {
             wrap="nowrap"
             className={styles.headerRow}
           >
-            <Link to="/" aria-label="comic-dl-web 首页">
+            <Link to="/" aria-label={t("comic-dl-web 首页")}>
               <Image
                 src="/comic-icon.png"
                 alt=""
@@ -116,18 +129,18 @@ export default function App({ loaderData }: Route.ComponentProps) {
             </Link>
             <Group
               component="nav"
-              aria-label="主导航"
+              aria-label={t("主导航")}
               gap={4}
               wrap="nowrap"
               className={styles.navigation}
             >
               {(
                 [
-                  ["/", "书架", "shelf"],
-                  ["/catalog", "浏览来源", "search"],
-                  ["/extensions", "扩展市场", "extensions"],
-                  ["/downloads", "手动下载", "download"],
-                  ["/settings", "设置", "settings"],
+                  ["/", t("书架"), "shelf"],
+                  ["/catalog", t("浏览来源"), "search"],
+                  ["/extensions", t("扩展市场"), "extensions"],
+                  ["/downloads", t("手动下载"), "download"],
+                  ["/settings", t("设置"), "settings"],
                 ] satisfies [string, string, IconName][]
               ).map(([to, label, icon]) => (
                 <Button
@@ -147,29 +160,25 @@ export default function App({ loaderData }: Route.ComponentProps) {
                 </Button>
               ))}
             </Group>
-            <Group gap={4} aria-label="快捷操作" wrap="nowrap">
+            <Group gap={4} aria-label={t("快捷操作")} wrap="nowrap">
               <Indicator disabled={active === 0} label={active} size={16}>
                 <ActionIcon
                   size={36}
                   variant="light"
                   onClick={drawer.open}
                   aria-haspopup="dialog"
-                  aria-label={active > 0 ? `下载 (${active})` : "下载"}
-                  title="下载管理"
+                  aria-label={
+                    active > 0
+                      ? t("下载 ({count})", { count: active })
+                      : t("下载")
+                  }
+                  title={t("下载管理")}
                 >
                   <Icon name="download" />
                 </ActionIcon>
               </Indicator>
               <ThemeToggle />
-              <ActionIcon
-                size={36}
-                variant="subtle"
-                disabled
-                title="多语言支持待加入"
-                aria-label="语言（暂未开放）"
-              >
-                <Icon name="language" />
-              </ActionIcon>
+              <LanguagePicker />
             </Group>
           </Group>
         </Container>
@@ -179,8 +188,8 @@ export default function App({ loaderData }: Route.ComponentProps) {
         onClose={drawer.close}
         position="right"
         size="lg"
-        title="下载管理"
-        closeButtonProps={{ "aria-label": "关闭下载管理" }}
+        title={t("下载管理")}
+        closeButtonProps={{ "aria-label": t("关闭下载管理") }}
       >
         <DownloadTasks tasks={tasks} compact />
       </Drawer>

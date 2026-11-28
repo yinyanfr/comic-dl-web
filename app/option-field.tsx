@@ -1,3 +1,4 @@
+import { useI18n } from "./i18n-context";
 import { NativeSelect, TextInput } from "@mantine/core";
 import type { OptionDefinition, OptionValue } from "comic-dl/extension";
 
@@ -12,6 +13,7 @@ export function OptionField({
   value?: OptionValue;
   emptyLabel: string;
 }) {
+  const { t } = useI18n();
   const props = {
     name: `option.${name}`,
     label: definition.label,
@@ -23,8 +25,8 @@ export function OptionField({
       definition.type === "select"
         ? definition.choices.map(({ id, label }) => ({ value: id, label }))
         : [
-            { value: "true", label: "是" },
-            { value: "false", label: "否" },
+            { value: "true", label: t("是") },
+            { value: "false", label: t("否") },
           ];
     return (
       <NativeSelect

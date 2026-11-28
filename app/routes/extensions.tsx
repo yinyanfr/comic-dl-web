@@ -1,3 +1,5 @@
+import { useI18n } from "../i18n-context";
+import { pageTitle, readLocale } from "../i18n";
 import {
   Alert,
   Badge,
@@ -22,12 +24,16 @@ import { OptionField } from "../option-field";
 import type { Route } from "./+types/extensions";
 import styles from "./home.module.css";
 
-export function meta() {
-  return [{ title: "扩展市场 · comic-dl-web" }];
+export function meta({ matches }: Route.MetaArgs) {
+  return [{ title: pageTitle(matches, "扩展市场") }];
 }
 
 export function loader({ request, context }: Route.LoaderArgs) {
-  return loadExtensions(context.get(comicsContext), request.signal);
+  return loadExtensions(
+    context.get(comicsContext),
+    request.signal,
+    readLocale(request.headers.get("cookie")),
+  );
 }
 
 export function action({ request, context }: Route.ActionArgs) {
@@ -43,22 +49,23 @@ function Feedback({
   result: Command;
   pending?: string;
 }) {
+  const { t } = useI18n();
   if (result.state !== "idle")
     return (
       <Text size="sm" role="status">
-        {pending}
+        {t(pending)}
       </Text>
     );
   if (result.data?.error)
     return (
       <Alert color="red" role="alert">
-        {result.data.error}
+        {t(result.data.error)}
       </Alert>
     );
   if (result.data?.message)
     return (
       <Text size="sm" role="status">
-        {result.data.message}
+        {t(result.data.message)}
       </Text>
     );
   return null;
@@ -77,6 +84,7 @@ function InstallForm({
   packageName?: string;
   controls: PackageControls;
 }) {
+  const { t } = useI18n();
   const surface = packageName ? `package:${packageName}` : "manual-install";
   const pending =
     activeForm?.get("intent") === "add" &&
@@ -94,7 +102,7 @@ function InstallForm({
           <input type="hidden" name="name" value={packageName} />
         ) : (
           <TextInput
-            label="npm 包名"
+            label={t("npm 包名")}
             name="name"
             placeholder="@scope/package"
             maxLength={214}
@@ -103,17 +111,26 @@ function InstallForm({
         )}
         {!packageName && (
           <TextInput
-            label="版本范围或标签（可选）"
+            label={t("版本范围或标签（可选）")}
             name="version"
-            placeholder="^1.2.0 或 latest"
+            placeholder={t("^1.2.0 或 latest")}
             maxLength={100}
           />
         )}
         {packageName && <input type="hidden" name="version" value="" />}
-        <Checkbox name="trust" value="yes" label="我信任此发布者" required />
+        <Checkbox
+          name="trust"
+          value="yes"
+          label={t("我信任此发布者")}
+          required
+        />
         <Group>
           <Button name="intent" value="add" type="submit" loading={pending}>
-            {pending ? "正在安装…" : packageName ? "安装托管版本" : "安装"}
+            {pending
+              ? t("正在安装…")
+              : packageName
+                ? t("安装托管版本")
+                : t("安装")}
           </Button>
         </Group>
       </fieldset>
@@ -128,6 +145,7 @@ function ManageForm({
   packageName?: string;
   controls: PackageControls;
 }) {
+  const { t } = useI18n();
   const surface = packageName ? `package:${packageName}` : "manual-manage";
   const intent =
     activeForm?.get("surface") === surface
@@ -146,7 +164,7 @@ function ManageForm({
           <input type="hidden" name="name" value={packageName} />
         ) : (
           <TextInput
-            label="已安装的 npm 包名"
+            label={t("已安装的 npm 包名")}
             name="name"
             placeholder="@scope/package"
             maxLength={214}
@@ -162,7 +180,7 @@ function ManageForm({
             formNoValidate
             loading={intent === "check-updates"}
           >
-            检查更新
+            {t("检查更新")}
           </Button>
           <Button
             name="intent"
@@ -171,7 +189,7 @@ function ManageForm({
             variant="light"
             loading={intent === "update"}
           >
-            {intent === "update" ? "正在更新…" : "更新"}
+            {intent === "update" ? t("正在更新…") : t("更新")}
           </Button>
           <Button
             name="intent"
@@ -182,13 +200,13 @@ function ManageForm({
             loading={intent === "remove"}
             formNoValidate
           >
-            {intent === "remove" ? "正在卸载…" : "卸载"}
+            {intent === "remove" ? t("正在卸载…") : t("卸载")}
           </Button>
         </Group>
         <Checkbox
           name="confirm"
           value="yes"
-          label="确认按保存范围应用更新"
+          label={t("确认按保存范围应用更新")}
           required
         />
       </fieldset>
@@ -209,6 +227,7 @@ function SourceCredentials({
   writable: boolean;
   packageBusy: boolean;
 }) {
+  const { t } = useI18n();
   const credential = useFetcher<typeof action>();
   const secret = useRef<HTMLInputElement>(null);
   useEffect(() => {
@@ -226,19 +245,21 @@ function SourceCredentials({
         ? "Auth Key"
         : "API Key";
   const status = {
-    saved: "已保存网页凭证。",
-    environment: "部署环境已提供凭证。",
-    changed: "来源地址已变更，请为新地址重新保存凭证。",
-    missing: "尚未配置凭证。",
+    saved: t("已保存网页凭证。"),
+    environment: t("部署环境已提供凭证。"),
+    changed: t("来源地址已变更，请为新地址重新保存凭证。"),
+    missing: t("尚未配置凭证。"),
   };
   return (
-    <Stack component="section" aria-label="来源凭证" gap="xs">
-      <Text fw={600}>来源凭证</Text>
+    <Stack component="section" aria-label={t("来源凭证")} gap="xs">
+      <Text fw={600}>{t("来源凭证")}</Text>
       <Text size="sm" c="dimmed">
         {status[auth.status]}
       </Text>
       {!auth.supported && (
-        <Text size="sm">当前加载的是外部扩展版本，请按扩展文档配置凭证。</Text>
+        <Text size="sm">
+          {t("当前加载的是外部扩展版本，请按扩展文档配置凭证。")}
+        </Text>
       )}
       {auth.loginUrl && (
         <>
@@ -250,17 +271,18 @@ function SourceCredentials({
               rel="noopener noreferrer"
               variant="light"
             >
-              在新标签页登录 Zerobyw
+              {t("在新标签页登录 Zerobyw")}
             </Button>
           </Group>
           <Text size="sm" c="dimmed">
-            登录后打开一部作品，在浏览器开发者工具的「网络」面板刷新页面，复制发往
-            Zerobyw 的作品请求中 Cookie 请求头的值，再粘贴到下方。
+            {t(
+              "登录后打开一部作品，在浏览器开发者工具的「网络」面板刷新页面，复制发往 Zerobyw 的作品请求中 Cookie 请求头的值，再粘贴到下方。",
+            )}
           </Text>
         </>
       )}
       {writable && auth.supported && !auth.target && (
-        <Text size="sm">请先保存有效的服务器地址。</Text>
+        <Text size="sm">{t("请先保存有效的服务器地址。")}</Text>
       )}
       {writable && (auth.supported || auth.saved) && (
         <credential.Form method="post" action="/extensions">
@@ -274,7 +296,7 @@ function SourceCredentials({
                   name="credential"
                   label={label}
                   autoComplete="off"
-                  description={`仅用于 ${auth.target}`}
+                  description={t("仅用于 {target}", { target: auth.target })}
                   maxLength={8192}
                   disabled={packageBusy}
                   required
@@ -286,7 +308,7 @@ function SourceCredentials({
                     value="save-credential"
                     disabled={packageBusy || credential.state !== "idle"}
                   >
-                    保存凭证
+                    {t("保存凭证")}
                   </Button>
                 </Group>
               </>
@@ -301,7 +323,7 @@ function SourceCredentials({
                   formNoValidate
                   disabled={packageBusy || credential.state !== "idle"}
                 >
-                  清除网页凭证
+                  {t("清除网页凭证")}
                 </Button>
               </Group>
             )}
@@ -326,12 +348,13 @@ function SourceSettings({
   packages: Route.ComponentProps["loaderData"]["packages"];
   controls: PackageControls;
 }) {
+  const { t } = useI18n();
   const save = useFetcher<typeof action>();
   return (
     <Paper
       component="article"
       id={`source-${source.id}`}
-      aria-label={`来源 ${source.id}`}
+      aria-label={t("来源 {id}", { id: source.id })}
       withBorder
       p="md"
     >
@@ -344,7 +367,7 @@ function SourceSettings({
             variant="light"
             color={source.settingsInvalid ? "yellow" : "teal"}
           >
-            {source.settingsInvalid ? "设置无效" : "已加载"}
+            {source.settingsInvalid ? t("设置无效") : t("已加载")}
           </Badge>
           <Button
             component={Link}
@@ -352,7 +375,7 @@ function SourceSettings({
             variant="light"
             size="compact-sm"
           >
-            打开目录
+            {t("打开目录")}
           </Button>
         </Group>
         {packages
@@ -360,7 +383,8 @@ function SourceSettings({
           .map((item) => (
             <Stack key={item.package} gap="xs">
               <Text size="xs">
-                {item.package} · {item.version ?? "未知版本"} · {item.requested}
+                {item.package} · {item.version ?? t("未知版本")} ·{" "}
+                {item.requested}
               </Text>
               {writable && (
                 <ManageForm packageName={item.package} controls={controls} />
@@ -369,7 +393,7 @@ function SourceSettings({
           ))}
         {source.options.length === 0 && (
           <Text size="sm" c="dimmed">
-            没有声明可编辑的设置。
+            {t("没有声明可编辑的设置。")}
           </Text>
         )}
         {(source.options.length > 0 || source.hasSaved) && (
@@ -378,7 +402,7 @@ function SourceSettings({
               disabled={!writable || packageBusy || save.state !== "idle"}
               className={styles.chapterList}
             >
-              <legend>来源设置</legend>
+              <legend>{t("来源设置")}</legend>
               <input type="hidden" name="source" value={source.id} />
               <Stack gap="sm">
                 {source.options.map(
@@ -390,10 +414,10 @@ function SourceSettings({
                       value={value}
                       emptyLabel={
                         hasEnvironment
-                          ? "沿用部署设置或默认值"
+                          ? t("沿用部署设置或默认值")
                           : fallback === undefined
-                            ? "沿用默认值"
-                            : `默认：${String(fallback)}`
+                            ? t("沿用默认值")
+                            : t("默认：{value}", { value: String(fallback) })
                       }
                     />
                   ),
@@ -401,7 +425,7 @@ function SourceSettings({
                 {writable && (
                   <Group>
                     <Button type="submit" name="intent" value="settings">
-                      保存设置
+                      {t("保存设置")}
                     </Button>
                     <Button
                       type="submit"
@@ -410,7 +434,7 @@ function SourceSettings({
                       variant="subtle"
                       disabled={!source.hasSaved}
                     >
-                      恢复默认
+                      {t("恢复默认")}
                     </Button>
                   </Group>
                 )}
@@ -433,6 +457,7 @@ function SourceSettings({
 }
 
 export default function Extensions({ loaderData }: Route.ComponentProps) {
+  const { t } = useI18n();
   const { sources, issues, installed, packages, deploymentPackages, writable } =
     loaderData;
   const command = useFetcher<typeof action>();
@@ -458,16 +483,20 @@ export default function Extensions({ loaderData }: Route.ComponentProps) {
   return (
     <Container component="main" size="lg" className={styles.main}>
       <Stack gap="lg">
-        <Title order={1}>扩展市场</Title>
+        <Title order={1}>{t("扩展市场")}</Title>
         <Alert color={writable ? "yellow" : "blue"}>
           {writable
-            ? "扩展代码会在本服务中运行。安装或更新前请确认你信任包的发布者。"
-            : "当前为只读模式。部署者可开启扩展管理来安装扩展和编辑来源设置。"}
+            ? t(
+                "扩展代码会在本服务中运行。安装或更新前请确认你信任包的发布者。",
+              )
+            : t(
+                "当前为只读模式。部署者可开启扩展管理来安装扩展和编辑来源设置。",
+              )}
         </Alert>
         {writable && (
           <Paper
             component="section"
-            aria-label="全局扩展管理"
+            aria-label={t("全局扩展管理")}
             withBorder
             p="md"
           >
@@ -484,18 +513,20 @@ export default function Extensions({ loaderData }: Route.ComponentProps) {
                   loading={checkPending}
                   disabled={busy}
                 >
-                  {checkPending ? "正在检查更新…" : "检查全部托管扩展更新"}
+                  {checkPending
+                    ? t("正在检查更新…")
+                    : t("检查全部托管扩展更新")}
                 </Button>
               </command.Form>
               {command.data?.updates && (
                 <Stack gap="xs">
                   {command.data.updates.map((item) => (
                     <Text size="sm" key={item.package}>
-                      {item.package} · {item.version ?? "未知"} →{" "}
+                      {item.package} · {item.version ?? t("未知")} →{" "}
                       {item.updateStatus === "failed"
-                        ? "检查失败"
+                        ? t("检查失败")
                         : item.updateStatus === "current"
-                          ? "已是范围内最新版本"
+                          ? t("已是范围内最新版本")
                           : item.availableVersion}
                     </Text>
                   ))}
@@ -506,7 +537,7 @@ export default function Extensions({ loaderData }: Route.ComponentProps) {
                       <Checkbox
                         name="confirm"
                         value="yes"
-                        label="确认应用全部托管扩展更新"
+                        label={t("确认应用全部托管扩展更新")}
                         required
                         disabled={busy}
                       />
@@ -517,27 +548,29 @@ export default function Extensions({ loaderData }: Route.ComponentProps) {
                         loading={bulkPending}
                         disabled={busy}
                       >
-                        应用全部更新
+                        {t("应用全部更新")}
                       </Button>
                     </command.Form>
                   )}
                 </Stack>
               )}
               <Text size="sm" c="dimmed">
-                检查不会安装或切换版本。应用时按保存范围重新解析；固定版本不会自动跨版本升级。内置扩展随应用更新，卸载托管包后恢复内置版本。
+                {t(
+                  "检查不会安装或切换版本。应用时按保存范围重新解析；固定版本不会自动跨版本升级。内置扩展随应用更新，卸载托管包后恢复内置版本。",
+                )}
               </Text>
               <Feedback
                 result={command}
                 pending={
                   bulkPending
-                    ? "正在应用全部托管扩展更新…"
+                    ? t("正在应用全部托管扩展更新…")
                     : activeForm?.get("intent") === "check-updates"
-                      ? "正在检查更新，当前版本保持不变…"
+                      ? t("正在检查更新，当前版本保持不变…")
                       : activeForm?.get("intent") === "remove"
-                        ? "正在卸载扩展…"
+                        ? t("正在卸载扩展…")
                         : activeForm?.get("intent") === "update"
-                          ? "正在更新扩展…"
-                          : "正在安装扩展…"
+                          ? t("正在更新扩展…")
+                          : t("正在安装扩展…")
                 }
               />
             </Stack>
@@ -545,7 +578,7 @@ export default function Extensions({ loaderData }: Route.ComponentProps) {
         )}
         <section aria-labelledby="official-heading">
           <Title id="official-heading" order={2} size="h4" mb="sm">
-            推荐扩展
+            {t("推荐扩展")}
           </Title>
           <SimpleGrid cols={{ base: 1, sm: 2, md: 3 }}>
             {extensionCatalog.map((extension) => (
@@ -561,30 +594,36 @@ export default function Extensions({ loaderData }: Route.ComponentProps) {
                     <Title order={3} size="h5">
                       {extension.title}
                     </Title>
-                    <Badge variant="light">{extension.category}</Badge>
+                    <Badge variant="light">{t(extension.category)}</Badge>
                   </Group>
                   <Text size="sm" className={styles.taskId}>
                     {extension.name}
                   </Text>
-                  <Text size="sm">{extension.description}</Text>
+                  <Text size="sm">{t(extension.description)}</Text>
                   {packages
                     .filter((item) => item.package === extension.name)
                     .map((item) => (
                       <Text size="xs" key={item.package}>
-                        版本 {item.version ?? "未知"} · 范围 {item.requested} ·
-                        来源 {item.sourceId ?? "未知"} ·{" "}
-                        {item.status === "loaded" ? "定义可加载" : "加载失败"}
+                        {t("版本 {version} · 范围 {range} · 来源 {source}", {
+                          version: item.version ?? t("未知"),
+                          range: item.requested,
+                          source: item.sourceId ?? t("未知"),
+                        })}{" "}
+                        ·{" "}
+                        {item.status === "loaded"
+                          ? t("定义可加载")
+                          : t("加载失败")}
                       </Text>
                     ))}
                   <Group gap="xs">
-                    <Badge variant="light">随应用提供</Badge>
+                    <Badge variant="light">{t("随应用提供")}</Badge>
                     {loaded.has(extension.id) && (
                       <Badge color="teal" variant="light">
-                        来源已加载
+                        {t("来源已加载")}
                       </Badge>
                     )}
                     {managed.has(extension.name) && (
-                      <Badge variant="light">托管包</Badge>
+                      <Badge variant="light">{t("托管包")}</Badge>
                     )}
                   </Group>
                   <Group gap="xs">
@@ -596,7 +635,7 @@ export default function Extensions({ loaderData }: Route.ComponentProps) {
                           variant="light"
                           size="compact-sm"
                         >
-                          打开目录
+                          {t("打开目录")}
                         </Button>
                         <Button
                           component="a"
@@ -604,7 +643,7 @@ export default function Extensions({ loaderData }: Route.ComponentProps) {
                           variant="subtle"
                           size="compact-sm"
                         >
-                          来源设置
+                          {t("来源设置")}
                         </Button>
                       </>
                     )}
@@ -614,7 +653,7 @@ export default function Extensions({ loaderData }: Route.ComponentProps) {
                       variant="subtle"
                       size="compact-sm"
                     >
-                      使用文档
+                      {t("使用文档")}
                     </Button>
                     <Button
                       component="a"
@@ -652,15 +691,18 @@ export default function Extensions({ loaderData }: Route.ComponentProps) {
         >
           <Stack gap="md">
             <Title id="managed-heading" order={2} size="h4">
-              托管扩展
+              {t("托管扩展")}
             </Title>
             <Text size="sm" c="dimmed">
-              清单来自当前托管目录。定义可加载不代表账号或站点可用；从 CLI
-              变更扩展后请重启服务。
+              {t(
+                "清单来自当前托管目录。定义可加载不代表账号或站点可用；从 CLI 变更扩展后请重启服务。",
+              )}
             </Text>
             {deploymentPackages.length > 0 && (
               <Text size="sm">
-                由部署环境加载：{deploymentPackages.join("、")}
+                {t("由部署环境加载：{packages}", {
+                  packages: deploymentPackages.join(", "),
+                })}
               </Text>
             )}
             {outsideCatalog.map((name) => (
@@ -679,9 +721,15 @@ export default function Extensions({ loaderData }: Route.ComponentProps) {
                     .filter((item) => item.package === name)
                     .map((item) => (
                       <Text key={name} size="xs">
-                        版本 {item.version ?? "未知"} · 范围 {item.requested} ·
-                        来源 {item.sourceId ?? "未知"} ·{" "}
-                        {item.status === "loaded" ? "定义可加载" : "加载失败"}
+                        {t("版本 {version} · 范围 {range} · 来源 {source}", {
+                          version: item.version ?? t("未知"),
+                          range: item.requested,
+                          source: item.sourceId ?? t("未知"),
+                        })}{" "}
+                        ·{" "}
+                        {item.status === "loaded"
+                          ? t("定义可加载")
+                          : t("加载失败")}
                       </Text>
                     ))}
                   {writable && (
@@ -694,13 +742,13 @@ export default function Extensions({ loaderData }: Route.ComponentProps) {
               <SimpleGrid cols={{ base: 1, sm: 2 }}>
                 <Stack gap="xs">
                   <Title order={3} size="h6">
-                    按 npm 包名安装
+                    {t("按 npm 包名安装")}
                   </Title>
                   <InstallForm controls={controls} />
                 </Stack>
                 <Stack gap="xs">
                   <Title order={3} size="h6">
-                    按 npm 包名更新或卸载
+                    {t("按 npm 包名更新或卸载")}
                   </Title>
                   <ManageForm controls={controls} />
                 </Stack>
@@ -711,20 +759,22 @@ export default function Extensions({ loaderData }: Route.ComponentProps) {
         <section aria-labelledby="sources-heading">
           <Stack gap="sm">
             <Title id="sources-heading" order={2} size="h4">
-              已加载来源
+              {t("已加载来源")}
             </Title>
             {issues.length > 0 && (
-              <Alert color="yellow" title="扩展加载问题">
+              <Alert color="yellow" title={t("扩展加载问题")}>
                 <Stack gap="xs">
                   {issues.map((issue) => (
                     <Text key={issue} size="sm">
-                      {issue}
+                      {t(issue)}
                     </Text>
                   ))}
                 </Stack>
               </Alert>
             )}
-            {sources.length === 0 && <Text c="dimmed">尚未加载漫画源。</Text>}
+            {sources.length === 0 && (
+              <Text c="dimmed">{t("尚未加载漫画源。")}</Text>
+            )}
             {sources.map((source) => (
               <SourceSettings
                 key={source.id}

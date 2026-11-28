@@ -1,4 +1,5 @@
 import { createDownloader, type ShelfHandle } from "comic-dl";
+import { readLocale, translator } from "./i18n.ts";
 import { data } from "react-router";
 import { z } from "zod";
 import {
@@ -250,7 +251,14 @@ export async function handleShelfAction(
         () => {},
       );
       return respond({
-        message: `已检查 ${result.checked} 项，${result.queued} 章入队，${result.failures} 项检查失败。`,
+        message: translator(readLocale(request.headers.get("cookie")))(
+          "已检查 {checked} 项，{queued} 章入队，{failures} 项检查失败。",
+          {
+            checked: result.checked,
+            queued: result.queued,
+            failures: result.failures,
+          },
+        ),
       });
     }
 

@@ -1,5 +1,13 @@
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import express, { type Request, type Response } from "express";
+import {
+  isLocale,
+  languageNames,
+  localeCookie,
+  locales,
+  readLocale,
+  translator,
+} from "./i18n.ts";
 
 const cookieName = "comic_dl_web_session";
 const rememberedAge = 30 * 24 * 60 * 60 * 1000;
@@ -77,7 +85,15 @@ export function createAuthMiddleware({
     error = "",
     status = 200,
   ) {
-    const next = returnPath(request.query.next);
+    const next = returnPath(request.body?.next ?? request.query.next);
+    const locale = readLocale(request.headers.cookie);
+    const t = translator(locale);
+    const languages = locales
+      .map(
+        (value) =>
+          `<a lang="${value}" ${locale === value ? 'aria-current="true"' : ""} href="/login?${escape(new URLSearchParams({ next, lang: value }).toString())}">${languageNames[value]}</a>`,
+      )
+      .join(" · ");
     response
       .status(status)
       .set({
@@ -85,9 +101,9 @@ export function createAuthMiddleware({
           "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
       })
       .type("html")
-      .send(`<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">
+      .send(`<!doctype html><html lang="${locale}"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>管理员登录 · comic-dl-web</title><style>
+<title>${t("管理员登录")} · comic-dl-web</title><style>
 :root{color-scheme:light dark;--mantine-primary-color-filled:#228be6;--mantine-radius-md:8px}
 *{box-sizing:border-box}body{margin:0;font:16px/1.55 system-ui,sans-serif;background:light-dark(#f8f9fa,#141517);color:light-dark(#212529,#c1c2c5)}
 main{max-width:400px;margin:12vh auto;padding:24px;border:1px solid light-dark(#dee2e6,#373a40);border-radius:var(--mantine-radius-md);background:light-dark(white,#1a1b1e)}
@@ -95,12 +111,12 @@ h1{font-size:24px;margin:0 0 8px}p{color:light-dark(#495057,#a6a7ab)}label{displ
 input[type=password]{width:100%;font:inherit;padding:10px;border:1px solid light-dark(#ced4da,#5c5f66);border-radius:4px;background:transparent;color:inherit}
 button{width:100%;margin-top:20px;padding:10px;font:inherit;font-weight:600;background:var(--mantine-primary-color-filled);color:white;border:0;border-radius:4px;cursor:pointer}
 [role=alert]{color:light-dark(#c92a2a,#ff8787)}@media(max-width:440px){main{margin:8vh 16px}}
-</style></head><body><main><h1>管理员登录</h1><p>输入管理员密码以访问 comic-dl-web。</p>
-${error ? `<p role="alert">${escape(error)}</p>` : ""}
+</style></head><body><main><nav aria-label="${t("语言")}">${languages}</nav><h1>${t("管理员登录")}</h1><p>${t("输入管理员密码以访问 comic-dl-web。")}</p>
+${error ? `<p role="alert">${escape(t(error))}</p>` : ""}
 <form method="post" action="/auth/login"><input type="hidden" name="next" value="${escape(next)}">
-<label for="password">管理员密码</label><input id="password" name="password" type="password" autocomplete="current-password" required autofocus>
-<label><input type="checkbox" name="remember" value="1"> 记住我（30 天）</label>
-<button type="submit">登录</button></form><p>建议仅在本机、局域网或 VPN 内使用。</p></main></body></html>`);
+<label for="password">${t("管理员密码")}</label><input id="password" name="password" type="password" autocomplete="current-password" required autofocus>
+<label><input type="checkbox" name="remember" value="1"> ${t("记住我（30 天）")}</label>
+<button type="submit">${t("登录")}</button></form><p>${t("建议仅在本机、局域网或 VPN 内使用。")}</p></main></body></html>`);
   }
 
   router.use((request, response, next) => {
@@ -116,13 +132,31 @@ ${error ? `<p role="alert">${escape(error)}</p>` : ""}
     next();
   });
   router.get("/login", (request, response) => {
+    const locale = request.query.lang;
+    if (isLocale(locale)) {
+      response.cookie(localeCookie, locale, {
+        ...cookieOptions(request),
+        httpOnly: false,
+        sameSite: "lax",
+        maxAge: 365 * 86400000,
+      });
+      response.redirect(
+        303,
+        `/login?${new URLSearchParams({ next: returnPath(request.query.next) })}`,
+      );
+      return;
+    }
     loginPage(request, response);
   });
   router.post(
     ["/auth/login", "/auth/logout"],
     (request, response, next) => {
       if (request.get("origin") !== origin(request)) {
-        response.status(403).send("请求来源无效。");
+        response
+          .status(403)
+          .send(
+            translator(readLocale(request.headers.cookie))("请求来源无效。"),
+          );
         return;
       }
       next();
@@ -209,7 +243,9 @@ ${error ? `<p role="alert">${escape(error)}</p>` : ""}
     response
       .set("X-Comic-Dl-Auth", "required")
       .status(401)
-      .json({ error: "请先登录。" });
+      .json({
+        error: translator(readLocale(request.headers.cookie))("请先登录。"),
+      });
   });
   return router;
 }

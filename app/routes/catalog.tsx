@@ -1,3 +1,5 @@
+import { useI18n } from "../i18n-context";
+import { pageTitle } from "../i18n";
 import {
   Alert,
   Anchor,
@@ -21,8 +23,8 @@ import { OptionField } from "../option-field";
 import type { Route } from "./+types/catalog";
 import styles from "./home.module.css";
 
-export function meta() {
-  return [{ title: "浏览来源 · comic-dl-web" }];
+export function meta({ matches }: Route.MetaArgs) {
+  return [{ title: pageTitle(matches, "浏览来源") }];
 }
 
 export function loader({ request, context, url }: Route.LoaderArgs) {
@@ -36,8 +38,9 @@ function WorkGrid({
   results: CatalogWork[];
   source: string;
 }) {
+  const { t } = useI18n();
   const { search } = useLocation();
-  if (!results.length) return <Text c="dimmed">没有找到作品。</Text>;
+  if (!results.length) return <Text c="dimmed">{t("没有找到作品。")}</Text>;
   return (
     <SimpleGrid cols={{ base: 2, xs: 3, sm: 4, md: 6 }}>
       {results.map(({ input, title, coverUrl }, index) => (
@@ -64,6 +67,7 @@ function WorkGrid({
 }
 
 export default function Catalog({ loaderData }: Route.ComponentProps) {
+  const { t } = useI18n();
   const {
     source,
     sources,
@@ -96,28 +100,35 @@ export default function Catalog({ loaderData }: Route.ComponentProps) {
       <Stack gap="lg">
         {!source ? (
           <>
-            <Title order={1}>浏览来源</Title>
+            <Title order={1}>{t("浏览来源")}</Title>
             {error && (
               <Alert role="alert" color="yellow">
-                {error}
+                {t(error)}
               </Alert>
             )}
             {sources.length === 0 && (
-              <Text c="dimmed">还没有可用来源。请打开扩展市场检查设置。</Text>
+              <Text c="dimmed">
+                {t("还没有可用来源。请打开扩展市场检查设置。")}
+              </Text>
             )}
-            <Paper component="section" aria-label="聚合搜索" p="lg" withBorder>
+            <Paper
+              component="section"
+              aria-label={t("聚合搜索")}
+              p="lg"
+              withBorder
+            >
               <Form method="get" key={query}>
                 <Group align="end">
                   <TextInput
                     name="q"
-                    label="搜索全部来源"
-                    placeholder="输入漫画名称"
+                    label={t("搜索全部来源")}
+                    placeholder={t("输入漫画名称")}
                     maxLength={200}
                     defaultValue={query}
                     required
                   />
                   <Button type="submit" disabled={pending}>
-                    聚合搜索
+                    {t("聚合搜索")}
                   </Button>
                 </Group>
               </Form>
@@ -125,7 +136,7 @@ export default function Catalog({ loaderData }: Route.ComponentProps) {
             {groups ? (
               <Stack
                 component="section"
-                aria-label="聚合搜索结果"
+                aria-label={t("聚合搜索结果")}
                 aria-busy={pending}
               >
                 {groups.map(({ source, results, issue, hasNext }) => {
@@ -148,10 +159,10 @@ export default function Catalog({ loaderData }: Route.ComponentProps) {
                       {issue && (
                         <Text size="sm" c="dimmed">
                           {issue === "unconfigured"
-                            ? "尚未配置服务器地址或密钥。"
-                            : "此来源暂时无法搜索。"}{" "}
+                            ? t("尚未配置服务器地址或密钥。")
+                            : t("此来源暂时无法搜索。")}{" "}
                           <Link to={`/extensions#source-${source}`}>
-                            来源设置
+                            {t("来源设置")}
                           </Link>
                         </Text>
                       )}
@@ -164,14 +175,14 @@ export default function Catalog({ loaderData }: Route.ComponentProps) {
                           to={`/catalog?${params}`}
                           size="sm"
                         >
-                          查看此来源的下一页
+                          {t("查看此来源的下一页")}
                         </Anchor>
                       )}
                     </Stack>
                   );
                 })}
                 <Anchor component={Link} to="/catalog">
-                  返回全部来源目录
+                  {t("返回全部来源目录")}
                 </Anchor>
               </Stack>
             ) : (
@@ -194,7 +205,7 @@ export default function Catalog({ loaderData }: Route.ComponentProps) {
                           </Title>
                           {extension && (
                             <Text size="sm" c="dimmed" mt="xs">
-                              {extension.description}
+                              {t(extension.description)}
                             </Text>
                           )}
                         </div>
@@ -204,14 +215,14 @@ export default function Catalog({ loaderData }: Route.ComponentProps) {
                             to={`/catalog?source=${id}`}
                             variant="light"
                           >
-                            打开目录
+                            {t("打开目录")}
                           </Button>
                           <Button
                             component={Link}
                             to={`/extensions#source-${id}`}
                             variant="subtle"
                           >
-                            来源设置
+                            {t("来源设置")}
                           </Button>
                         </Group>
                       </Stack>
@@ -226,17 +237,17 @@ export default function Catalog({ loaderData }: Route.ComponentProps) {
             <Group justify="space-between">
               <div>
                 <Anchor component={Link} to="/catalog" size="sm">
-                  全部来源
+                  {t("全部来源")}
                 </Anchor>
                 <Title order={1}>{selected?.title ?? source}</Title>
               </div>
               <Button component={Link} to={settingsUrl} variant="subtle">
-                来源设置
+                {t("来源设置")}
               </Button>
             </Group>
             <Paper
               component="section"
-              aria-label="搜索与筛选"
+              aria-label={t("搜索与筛选")}
               p="lg"
               withBorder
             >
@@ -246,13 +257,13 @@ export default function Catalog({ loaderData }: Route.ComponentProps) {
                   <Group align="end">
                     <TextInput
                       name="q"
-                      label="关键词"
-                      placeholder="留空浏览目录"
+                      label={t("关键词")}
+                      placeholder={t("留空浏览目录")}
                       maxLength={200}
                       defaultValue={query}
                     />
                     <Button type="submit" disabled={pending}>
-                      浏览 / 搜索
+                      {t("浏览 / 搜索")}
                     </Button>
                   </Group>
                 </Form>
@@ -273,10 +284,10 @@ export default function Catalog({ loaderData }: Route.ComponentProps) {
                       {sorts.length > 0 && (
                         <NativeSelect
                           name="sort"
-                          label="排序"
+                          label={t("排序")}
                           defaultValue={sort ?? ""}
                           data={[
-                            { value: "", label: "来源默认排序" },
+                            { value: "", label: t("来源默认排序") },
                             ...sorts.map(({ id, label }) => ({
                               value: id,
                               label,
@@ -290,11 +301,11 @@ export default function Catalog({ loaderData }: Route.ComponentProps) {
                           name={name}
                           definition={definition}
                           value={filters[name]}
-                          emptyLabel="不限"
+                          emptyLabel={t("不限")}
                         />
                       ))}
                       <Button type="submit" variant="light" disabled={pending}>
-                        应用排序与筛选
+                        {t("应用排序与筛选")}
                       </Button>
                     </Group>
                   </Form>
@@ -303,39 +314,39 @@ export default function Catalog({ loaderData }: Route.ComponentProps) {
             </Paper>
             {error && (
               <Alert color="yellow" role="alert">
-                {error} {selected?.description}{" "}
-                <Link to={settingsUrl}>查看来源设置</Link>
+                {t(error)} {selected && t(selected.description)}{" "}
+                <Link to={settingsUrl}>{t("查看来源设置")}</Link>
               </Alert>
             )}
             {results && (
               <Stack
                 component="section"
-                aria-label="目录结果"
+                aria-label={t("目录结果")}
                 gap="sm"
                 aria-busy={pending}
               >
                 <Title order={2} size="h4">
-                  {query ? "搜索结果" : "浏览结果"}
+                  {query ? t("搜索结果") : t("浏览结果")}
                 </Title>
                 <WorkGrid results={results} source={source} />
-                <Group aria-label="目录分页">
+                <Group aria-label={t("目录分页")}>
                   {page > 1 && (
                     <Button
                       component={Link}
                       to={pageLink(page - 1)}
                       variant="light"
                     >
-                      上一页
+                      {t("上一页")}
                     </Button>
                   )}
-                  <Text size="sm">第 {page} 页</Text>
+                  <Text size="sm">{t("第 {page} 页", { page })}</Text>
                   {hasNext && (
                     <Button
                       component={Link}
                       to={pageLink(page + 1)}
                       variant="light"
                     >
-                      下一页
+                      {t("下一页")}
                     </Button>
                   )}
                 </Group>

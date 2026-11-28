@@ -1,3 +1,4 @@
+import { useI18n } from "./i18n-context";
 import {
   Alert,
   Badge,
@@ -32,6 +33,7 @@ const chapterStatus = {
 };
 
 function ChapterResults({ task }: { task: DownloadTaskSnapshot }) {
+  const { t } = useI18n();
   const history = useFetcher<typeof resultsLoader>();
   const [showHistory, setShowHistory] = useState(false);
   const page = showHistory ? history.data : undefined;
@@ -45,7 +47,7 @@ function ChapterResults({ task }: { task: DownloadTaskSnapshot }) {
   if (!results.length) return null;
   return (
     <>
-      <ul className={styles.results} aria-label="逐章结果">
+      <ul className={styles.results} aria-label={t("逐章结果")}>
         {results.map((result) => (
           <li key={result.chapterId}>
             <Group justify="space-between" gap="xs">
@@ -59,7 +61,7 @@ function ChapterResults({ task }: { task: DownloadTaskSnapshot }) {
                 color={chapterStatus[result.status].color}
                 variant="light"
               >
-                {chapterStatus[result.status].label}
+                {t(chapterStatus[result.status].label)}
               </Badge>
             </Group>
           </li>
@@ -76,7 +78,7 @@ function ChapterResults({ task }: { task: DownloadTaskSnapshot }) {
                 disabled={!page.offset || history.state !== "idle"}
                 onClick={() => load(page.offset - task.results.length)}
               >
-                上一页
+                {t("上一页")}
               </Button>
               <Button
                 type="button"
@@ -88,7 +90,7 @@ function ChapterResults({ task }: { task: DownloadTaskSnapshot }) {
                 }
                 onClick={() => load(page.offset + page.results.length)}
               >
-                下一页
+                {t("下一页")}
               </Button>
               <Button
                 type="button"
@@ -96,7 +98,7 @@ function ChapterResults({ task }: { task: DownloadTaskSnapshot }) {
                 variant="subtle"
                 onClick={() => setShowHistory(false)}
               >
-                返回最新结果
+                {t("返回最新结果")}
               </Button>
             </>
           ) : (
@@ -107,7 +109,7 @@ function ChapterResults({ task }: { task: DownloadTaskSnapshot }) {
               loading={history.state !== "idle"}
               onClick={() => load(0)}
             >
-              查看全部 {task.resultCount} 章结果
+              {t("查看全部 {count} 章结果", { count: task.resultCount })}
             </Button>
           )}
         </Group>
@@ -123,6 +125,7 @@ export function DownloadTasks({
   tasks: DownloadTaskSnapshot[];
   compact?: boolean;
 }) {
+  const { t } = useI18n();
   const cancel = useFetcher<typeof action>();
   const heading = compact ? "drawer-tasks-heading" : "tasks-heading";
   const groups = new Map<string, DownloadTaskSnapshot[]>();
@@ -148,9 +151,11 @@ export function DownloadTasks({
     >
       <Group justify="space-between" mb={4}>
         <Title id={heading} order={2} size="h4">
-          下载任务
+          {t("下载任务")}
         </Title>
-        <Badge variant="light">{tasks.length} 个任务</Badge>
+        <Badge variant="light">
+          {t("{count} 个任务", { count: tasks.length })}
+        </Badge>
         {finished && (
           <cancel.Form method="post" action="/downloads">
             <Button
@@ -161,22 +166,24 @@ export function DownloadTasks({
               value="clear-finished"
               disabled={cancel.state !== "idle"}
             >
-              清除已结束记录
+              {t("清除已结束记录")}
             </Button>
           </cancel.Form>
         )}
       </Group>
       <Text size="sm" c="dimmed" mb="md">
-        关闭页面后，下载仍会在服务端继续。默认只展示有限的最近章节记录，手动任务完整结果可分页查看。
+        {t(
+          "关闭页面后，下载仍会在服务端继续。默认只展示有限的最近章节记录，手动任务完整结果可分页查看。",
+        )}
       </Text>
       {cancel.state === "idle" && cancel.data?.error && (
         <Alert color="red" role="alert" mb="md">
-          {cancel.data.error}
+          {t(cancel.data.error)}
         </Alert>
       )}
       {tasks.length === 0 && (
         <Text size="sm" c="dimmed">
-          暂无下载任务。
+          {t("暂无下载任务。")}
         </Text>
       )}
       <Stack gap="sm">
@@ -185,7 +192,7 @@ export function DownloadTasks({
             key={key}
             gap="xs"
             component="section"
-            aria-label={group[0].work?.title ?? "未关联作品的任务"}
+            aria-label={group[0].work?.title ?? t("未关联作品的任务")}
           >
             {group[0].work && (
               <Group gap="xs">
@@ -201,18 +208,18 @@ export function DownloadTasks({
                 <Paper
                   component="article"
                   key={task.id}
-                  aria-label={`任务 ${task.id}`}
+                  aria-label={t("任务 {id}", { id: task.id })}
                   withBorder
                   p="sm"
                 >
                   <Group justify="space-between" gap="xs" mb={4}>
                     <Text size="sm" fw={600}>
-                      {task.origin === "shelf" ? "追更" : "手动"} ·{" "}
+                      {task.origin === "shelf" ? t("追更") : t("手动")} ·{" "}
                       {task.source} ·{" "}
-                      {task.kind === "series" ? "作品章节" : "单章"}
+                      {task.kind === "series" ? t("作品章节") : t("单章")}
                     </Text>
                     <Badge color={status.color} variant="light">
-                      {status.label}
+                      {t(status.label)}
                     </Badge>
                   </Group>
                   <Text size="xs" c="dimmed" className={styles.taskId}>
@@ -221,13 +228,16 @@ export function DownloadTasks({
                   {Boolean(task.chapterCount) && (
                     <>
                       <Text size="xs" c="dimmed" mt="xs">
-                        已处理 {task.resultCount} / {task.chapterCount} 章
+                        {t("已处理 {done} / {total} 章", {
+                          done: task.resultCount,
+                          total: task.chapterCount ?? 0,
+                        })}
                       </Text>
                       <Progress
                         value={
                           (100 * task.resultCount) / (task.chapterCount ?? 1)
                         }
-                        aria-label="章节处理进度"
+                        aria-label={t("章节处理进度")}
                         size="sm"
                       />
                     </>
@@ -235,8 +245,10 @@ export function DownloadTasks({
                   {task.status === "failed" && (
                     <Text size="sm" c="red" mt="xs">
                       {task.failure === "invalid-selection"
-                        ? "章节目录或选择已失效。请重新查看章节后再提交。"
-                        : "请检查来源是否可用、章节是否仍有效，以及输出目录是否可写。"}
+                        ? t("章节目录或选择已失效。请重新查看章节后再提交。")
+                        : t(
+                            "请检查来源是否可用、章节是否仍有效，以及输出目录是否可写。",
+                          )}
                     </Text>
                   )}
                   {task.resultCount > 0 && <ChapterResults task={task} />}
@@ -249,29 +261,33 @@ export function DownloadTasks({
                         ·{" "}
                         {
                           {
-                            queued: "排队中",
-                            retry: "等待重试",
-                            starting: "开始下载",
-                            reading: "下载图片",
-                            archiving: "写入归档",
-                            downloaded: "已下载",
-                            skipped: "已存在",
-                            failed: "失败",
-                            restricted: "受限",
-                            cancelled: "已取消",
+                            queued: t("排队中"),
+                            retry: t("等待重试"),
+                            starting: t("开始下载"),
+                            reading: t("下载图片"),
+                            archiving: t("写入归档"),
+                            downloaded: t("已下载"),
+                            skipped: t("已存在"),
+                            failed: t("失败"),
+                            restricted: t("受限"),
+                            cancelled: t("已取消"),
                           }[chapter.state]
                         }
                       </Text>
                       <Text size="xs" c="dimmed">
-                        已下载 {chapter.pagesDownloaded}
                         {chapter.totalPages === undefined
-                          ? " 页"
-                          : ` / ${chapter.totalPages} 页`}
+                          ? t("已下载 {count} 页", {
+                              count: chapter.pagesDownloaded,
+                            })
+                          : t("已下载 {done} / {total} 页", {
+                              done: chapter.pagesDownloaded,
+                              total: chapter.totalPages,
+                            })}
                       </Text>
                       {chapter.totalPages !== undefined &&
                         chapter.totalPages > 0 && (
                           <Progress
-                            aria-label="章节页数进度"
+                            aria-label={t("章节页数进度")}
                             value={
                               (100 * chapter.pagesDownloaded) /
                               chapter.totalPages
@@ -286,7 +302,7 @@ export function DownloadTasks({
                       gap={4}
                       mt="xs"
                       component="section"
-                      aria-label="待处理章节"
+                      aria-label={t("待处理章节")}
                     >
                       {task.remaining?.map(({ id, number, title }) => (
                         <Group key={id} justify="space-between" gap="xs">
@@ -294,7 +310,7 @@ export function DownloadTasks({
                             {number}-{title}
                           </Text>
                           <Badge variant="light" color="gray" size="sm">
-                            待完成
+                            {t("待完成")}
                           </Badge>
                         </Group>
                       ))}
@@ -331,7 +347,7 @@ export function DownloadTasks({
                         mt="sm"
                         disabled={cancel.state !== "idle"}
                       >
-                        取消任务
+                        {t("取消任务")}
                       </Button>
                     </cancel.Form>
                   )}
@@ -370,7 +386,7 @@ export function DownloadTasks({
                           variant="light"
                           disabled={cancel.state !== "idle"}
                         >
-                          重试失败或取消章节
+                          {t("重试失败或取消章节")}
                         </Button>
                       </cancel.Form>
                     )}

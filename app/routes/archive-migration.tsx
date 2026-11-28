@@ -1,3 +1,5 @@
+import { useI18n } from "../i18n-context";
+import { pageTitle } from "../i18n";
 import {
   Alert,
   Button,
@@ -22,6 +24,10 @@ import {
 } from "../downloader.server";
 import { sourceInput } from "../source-input.server";
 import type { Route } from "./+types/archive-migration";
+
+export function meta({ matches }: Route.MetaArgs) {
+  return [{ title: pageTitle(matches, "归档迁移") }];
+}
 
 export async function loader({ request, context }: Route.LoaderArgs) {
   if (!extensionManagementEnabled) throw new Response(null, { status: 403 });
@@ -87,31 +93,39 @@ export async function action({ request, context }: Route.ActionArgs) {
 }
 
 export default function ArchiveMigration({ loaderData }: Route.ComponentProps) {
+  const { t } = useI18n();
   const command = useFetcher<typeof action>();
   const busy = command.state !== "idle";
   return (
     <Container component="main" size="lg" py="xl">
       <Stack>
         <Button component={Link} to="/settings" variant="subtle">
-          返回设置
+          {t("返回设置")}
         </Button>
-        <Title order={1}>归档迁移</Title>
+        <Title order={1}>{t("归档迁移")}</Title>
         <Alert color="yellow">
-          先备份归档并停止其他写入工具。预览不修改文件；应用时暂停追更并阻止新的手动下载，运行中的手动任务须先结束。仅处理能匹配作品身份的归档，未列出的文件保持不变。
+          {t(
+            "先备份归档并停止其他写入工具。预览不修改文件；应用时暂停追更并阻止新的手动下载，运行中的手动任务须先结束。仅处理能匹配作品身份的归档，未列出的文件保持不变。",
+          )}
         </Alert>
         <Paper withBorder p="md">
           <command.Form method="post">
             <Stack>
               <NativeSelect
-                label="漫画源"
+                label={t("漫画源")}
                 name="source"
-                data={[{ value: "", label: "自动识别" }, ...loaderData.sources]}
+                data={[
+                  { value: "", label: t("自动识别") },
+                  ...loaderData.sources,
+                ]}
                 disabled={busy}
               />
               <TextInput
-                label="作品链接 / 短 ID（可选）"
+                label={t("作品链接 / 短 ID（可选）")}
                 name="input"
-                description="留空为全书架生成迁移预览；按当前归档模板和格式迁移，不移动下载根或所选子目录。"
+                description={t(
+                  "留空为全书架生成迁移预览；按当前归档模板和格式迁移，不移动下载根或所选子目录。",
+                )}
                 maxLength={4096}
                 disabled={busy}
               />
@@ -121,29 +135,29 @@ export default function ArchiveMigration({ loaderData }: Route.ComponentProps) {
                 value="preview"
                 loading={busy}
               >
-                生成迁移预览
+                {t("生成迁移预览")}
               </Button>
             </Stack>
           </command.Form>
         </Paper>
         {command.data?.error && (
           <Alert color="red" role="alert">
-            {command.data.error}
+            {t(command.data.error)}
           </Alert>
         )}
         {command.data?.message && (
-          <Text role="status">{command.data.message}</Text>
+          <Text role="status">{t(command.data.message)}</Text>
         )}
         {command.data?.preview && (
           <Stack>
-            <Text>预览有效期十分钟。冲突项不会覆盖。</Text>
+            <Text>{t("预览有效期十分钟。冲突项不会覆盖。")}</Text>
             <Table.ScrollContainer minWidth={500}>
               <Table>
                 <Table.Thead>
                   <Table.Tr>
-                    <Table.Th>原相对路径</Table.Th>
-                    <Table.Th>目标相对路径</Table.Th>
-                    <Table.Th>结果</Table.Th>
+                    <Table.Th>{t("原相对路径")}</Table.Th>
+                    <Table.Th>{t("目标相对路径")}</Table.Th>
+                    <Table.Th>{t("结果")}</Table.Th>
                   </Table.Tr>
                 </Table.Thead>
                 <Table.Tbody>
@@ -153,10 +167,10 @@ export default function ArchiveMigration({ loaderData }: Route.ComponentProps) {
                       <Table.Td>{item.to}</Table.Td>
                       <Table.Td>
                         {item.status === "move"
-                          ? "待移动"
+                          ? t("待移动")
                           : item.status === "conflict"
-                            ? "冲突"
-                            : "不变"}
+                            ? t("冲突")
+                            : t("不变")}
                       </Table.Td>
                     </Table.Tr>
                   ))}
@@ -172,7 +186,7 @@ export default function ArchiveMigration({ loaderData }: Route.ComponentProps) {
               <Checkbox
                 name="confirm"
                 value="yes"
-                label="已备份归档，确认应用此预览"
+                label={t("已备份归档，确认应用此预览")}
                 required
                 disabled={busy}
               />
@@ -188,7 +202,7 @@ export default function ArchiveMigration({ loaderData }: Route.ComponentProps) {
                     )
                   }
                 >
-                  应用迁移
+                  {t("应用迁移")}
                 </Button>
               </Group>
             </command.Form>

@@ -2,6 +2,7 @@ import { data } from "react-router";
 import { z } from "zod";
 import type { ExtensionUpdate } from "comic-dl";
 import type { ComicRuntime } from "./comic-runtime.server";
+import { translator, type Locale } from "./i18n.ts";
 import {
   isAdminRequest,
   deploymentPackages,
@@ -58,25 +59,28 @@ const respond = data<{
   updates?: ExtensionUpdate[];
 }>;
 
-function loadIssue(cause: unknown) {
+function loadIssue(cause: unknown, locale: Locale) {
+  const t = translator(locale);
   const message = cause instanceof Error ? cause.message : "";
   // Show only validated identifiers from the core's messages, never paths or causes.
   const missing = /^Could not load extension (\S+)$/.exec(message)?.[1];
-  if (packageName.safeParse(missing).success) return `${missing} 无法加载。`;
+  if (packageName.safeParse(missing).success)
+    return t("{name} 无法加载。", { name: missing! });
   const invalid = /^Invalid source extension (\S+): expected API version /.exec(
     message,
   )?.[1];
   if (packageName.safeParse(invalid).success)
-    return `${invalid} 不兼容当前扩展 API。`;
+    return t("{name} 不兼容当前扩展 API。", { name: invalid! });
   const duplicate = /^Duplicate source ID: ([a-z0-9-]+) \(/.exec(message)?.[1];
   if (sourceId.safeParse(duplicate).success)
-    return `来源 ID ${duplicate} 冲突。`;
+    return t("来源 ID {id} 冲突。", { id: duplicate! });
   return "有扩展无法加载，请检查扩展目录或部署配置。";
 }
 
 export async function loadExtensions(
   comics: ComicRuntime,
   signal: AbortSignal,
+  locale: Locale = "zh-CN",
 ) {
   const issues: string[] = [];
   const packages = await comics.listPackages(signal).catch(() => {
@@ -149,7 +153,7 @@ export async function loadExtensions(
       },
       signal,
       (cause) => {
-        issues.push(loadIssue(cause));
+        issues.push(loadIssue(cause, locale));
       },
     )
     .catch(() => {

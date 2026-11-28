@@ -4,6 +4,7 @@ import { extensionApiVersion, type Series } from "comic-dl/extension";
 import { data } from "react-router";
 import { z } from "zod";
 import type { ComicRuntime } from "./comic-runtime.server";
+import { readLocale, translator } from "./i18n.ts";
 import {
   outputReady,
   downloadOptions,
@@ -295,7 +296,10 @@ export async function handleDownloadAction(
               readWorkMetadata(current, source)?.title ??
               title ??
               (!URL.canParse(input) ? input.slice(0, 128) : undefined) ??
-              `作品 · ${source}`,
+              translator(readLocale(request.headers.get("cookie")))(
+                "作品 · {source}",
+                { source },
+              ),
           },
           current.chapters.flatMap(({ id, title }, index) =>
             ids.has(id) ? [{ id, title, number: index + 1 }] : [],
